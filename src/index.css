@@ -1,0 +1,495 @@
+/*
+ * Theme tokens as CSS variables, swapped via the data-theme attribute on
+ * <html>. Four themes (§ user request): light (default), sepia, dark, dim.
+ * Light is the default because bionic bolding has stronger contrast on a light
+ * background. Explicit selection supersedes the OS color-scheme preference.
+ *
+ * :root carries the Light palette so the very first paint (before JS sets
+ * data-theme) is already Light — no flash.
+ */
+:root,
+:root[data-theme='light'] {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --text: #1c1b19;
+  --muted: #6b6a67;
+  --border: #e6e3de;
+  --accent: #3b6ea5;
+  --anchor: #c0392b;
+}
+
+:root[data-theme='sepia'] {
+  --bg: #f1e7d0;
+  --surface: #faf3e0;
+  --text: #433422;
+  --muted: #8a755a;
+  --border: #e0d3b8;
+  --accent: #9a5f2b;
+  --anchor: #a8412f;
+}
+
+:root[data-theme='dark'] {
+  --bg: #16151a;
+  --surface: #1f1e25;
+  --text: #e9e7e2;
+  --muted: #9a978f;
+  --border: #34323b;
+  --accent: #6ea0d8;
+  --anchor: #ff7a6b;
+}
+
+:root[data-theme='dim'] {
+  --bg: #1b1f27;
+  --surface: #252b35;
+  --text: #dfe3ea;
+  --muted: #8b95a3;
+  --border: #39414e;
+  --accent: #79a8de;
+  --anchor: #f5796b;
+}
+
+:root {
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  --reading-width: 42rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.6;
+}
+
+/* Responsive full-height column: header/controls pinned, reader pane scrolls.
+   100dvh (not vh) so mobile browser chrome doesn't clip it. */
+.app-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* File-input landing screen (no document yet). */
+.app-intro {
+  max-width: var(--reading-width);
+  width: 100%;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem;
+}
+
+/* Pinned controls area above the scrolling pane. */
+.app-top {
+  flex: none;
+  max-width: var(--reading-width);
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 0.5rem;
+}
+
+.app-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+/* Buttons */
+button {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+button.secondary {
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+/* File input */
+.file-input {
+  margin-top: 1.5rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.file-input.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.file-input-format {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.file-input-hint {
+  margin: 0 0 0.9rem;
+}
+
+.file-input-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+}
+
+.file-input-note {
+  margin: 1rem 0 0;
+}
+
+.error {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  color: #b3261e;
+  background: color-mix(in srgb, #b3261e 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, #b3261e 35%, var(--surface));
+  border-radius: 8px;
+}
+
+/* Settings */
+.settings {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-intensity {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.settings-intensity.disabled {
+  opacity: 0.45;
+}
+
+.chip {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.chip.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.chip:disabled {
+  cursor: default;
+}
+
+.chip-sm {
+  padding: 0.22rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+/* Theme selector */
+.theme-selector {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+/* Bionic */
+.bionic-head {
+  font-weight: 700;
+}
+
+/* Words. The active-word highlight is the moving overlay below — not a per-word
+   background — so words carry no transition. Lead words get a faint tint
+   (toggled imperatively). */
+.word {
+  border-radius: 4px;
+}
+
+.word.clickable {
+  cursor: pointer;
+}
+
+.word.pacer-lead {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Chunk mode: N words highlighted in place (toggled imperatively). */
+.word.pacer-chunk {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+/* Shared number/range input chrome */
+.num {
+  width: 4.2rem;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Pacer controls */
+.pacer-controls {
+  margin-top: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.pacer-progressbar {
+  height: 3px;
+  background: var(--border);
+}
+
+.pacer-progressbar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+}
+
+.pacer-row {
+  padding: 0.7rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.pacer-transport {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pacer-play {
+  min-width: 6.2rem;
+}
+
+.pacer-scrub {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+.pacer-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.pacer-pct {
+  min-width: 2.6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-mode settings (formalized in M5) */
+.mode-settings {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.mode-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.kbd-hint {
+  margin: 0.5rem 0 0;
+}
+
+.mode-select {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Toolbar */
+.reader-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.reader-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.reader-doc-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16rem;
+}
+
+.reader-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+/* Reader pane — the virtualizer's scroll element + overlay coordinate space.
+   Gutters and trailing scroll room live here (NOT on .reader-content, whose
+   height is driven by the virtualizer and whose children are absolute). */
+.reader-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1rem 1.25rem 40vh;
+}
+
+.reader-content {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  font-size: var(--reader-font-size, 1.125rem);
+}
+
+/* The single gliding highlight. Sits behind the text (translucent) so bionic
+   bolding stays legible; moved/sized imperatively. */
+.pacer-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  opacity: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+
+.reader-block-wrap {
+  z-index: 1;
+}
+
+.reader-heading {
+  margin: 1.8rem 0 0.6rem;
+  line-height: 1.3;
+}
+
+.reader-paragraph {
+  margin: 0 0 1.1rem;
+}
+
+/* RSVP mode — single word at a fixed focal point. */
+.rsvp-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  line-height: 1.2;
+}
+
+/* 3-column grid: the auto (anchor) column is constant width in monospace, so
+   its centre is a fixed x at ~40% (2fr : 3fr). The anchor never drifts. */
+.rsvp-word {
+  display: grid;
+  grid-template-columns: 2fr auto 3fr;
+  align-items: baseline;
+  width: 100%;
+  max-width: var(--reading-width);
+  white-space: pre;
+}
+
+.rsvp-pre {
+  text-align: right;
+}
+
+.rsvp-post {
+  text-align: left;
+}
+
+.rsvp-anchor {
+  position: relative;
+  text-align: center;
+  color: var(--anchor);
+}
+
+/* Spritz-style focal ticks, centred on the anchor letter. */
+.rsvp-anchor::before,
+.rsvp-anchor::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 0.4em;
+  background: var(--border);
+}
+
+.rsvp-anchor::before {
+  bottom: 100%;
+  margin-bottom: 0.18em;
+}
+
+.rsvp-anchor::after {
+  top: 100%;
+  margin-top: 0.18em;
+}
+
+/* Pause cue: a thin tick under the anchor that depletes over a punctuation
+   dwell. Absolutely positioned, so it never moves the anchor letter. */
+.rsvp-pause-tick {
+  position: absolute;
+  top: calc(100% + 0.95em);
+  left: 50%;
+  transform: translateX(-50%);
+  height: 0.08em;
+  width: 0;
+  border-radius: 0.04em;
+  background: var(--accent);
+  opacity: 0;
+}
