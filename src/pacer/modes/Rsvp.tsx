@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { Word } from '../../model/types';
+import type { Document, Word } from '../../model/types';
 import { splitOrp } from '../orp';
 import type { PacerApi } from '../usePacer';
+import { RsvpContextStrip } from './RsvpContextStrip';
 
 /**
  * RSVP mode (§7.3, M5) — single word flashed at a fixed focal point.
@@ -22,11 +23,21 @@ import type { PacerApi } from '../usePacer';
 export interface RsvpSettings {
   /** Word font size in rem. */
   fontSize: number;
+  /** Show the dim current-paragraph context strip below the word (issue #1). */
+  showContext: boolean;
+  /** Strip height in context lines (odd: 3/5 — a centered line with equal
+   *  context above and below). */
+  contextLines: number;
 }
 
-export const DEFAULT_RSVP: RsvpSettings = { fontSize: 3 };
+export const DEFAULT_RSVP: RsvpSettings = {
+  fontSize: 3,
+  showContext: true,
+  contextLines: 3,
+};
 
 interface RsvpProps {
+  document: Document;
   words: Word[];
   pacer: PacerApi;
   wpm: number;
@@ -35,7 +46,15 @@ interface RsvpProps {
   settings: RsvpSettings;
 }
 
-export function Rsvp({ words, pacer, wpm, dwell, naturalPauses, settings }: RsvpProps) {
+export function Rsvp({
+  document,
+  words,
+  pacer,
+  wpm,
+  dwell,
+  naturalPauses,
+  settings,
+}: RsvpProps) {
   const preRef = useRef<HTMLSpanElement>(null);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const postRef = useRef<HTMLSpanElement>(null);
@@ -100,6 +119,14 @@ export function Rsvp({ words, pacer, wpm, dwell, naturalPauses, settings }: Rsvp
         </span>
         <span className="rsvp-post" ref={postRef} />
       </div>
+
+      {settings.showContext && (
+        <RsvpContextStrip
+          document={document}
+          pacer={pacer}
+          contextLines={settings.contextLines}
+        />
+      )}
     </div>
   );
 }

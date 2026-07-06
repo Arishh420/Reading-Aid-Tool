@@ -218,6 +218,56 @@ virtualized `Reader`; RSVP replaces it with its own focal stage.
 property; in RN the same effect is a flex row with the equivalent ratios (and a
 monospace font), reusing `splitOrp`.
 
+### Context strip — `RsvpContextStrip.tsx` (RSVP only)
+RSVP removes spatial context; the strip restores it, dim and small, below the
+flashing word — applying the RSVP principle to itself: the **active word's line
+is pinned to the box center line**, and the paragraph text **scrolls
+continuously underneath it** (a CSS-transitioned `translateY` on the inner
+content; lines rise one at a time, not a page-flip).
+
+- **Additive independent subscriber** — subscribes to the pacer index (via the
+  stable `subscribe`/`indexRef`, so it wires up **once**, not on every parent
+  render) and, per word, sets the `translateY` + moves the highlight class
+  imperatively (**zero React render**; the transform value only changes on a line
+  change, so within a line there's no motion).
+- **Centering is offsetParent-independent.** `center()` measures the active
+  span vs. the scroll container with `getBoundingClientRect()` and reads the live
+  `translateY` from the computed matrix — never `offsetTop`, which silently
+  breaks when any ancestor (e.g. the paragraph, made `relative` for the break
+  separator) becomes the offsetParent. Reading the *live* transform also lets a
+  mid-transition re-center retarget without jitter.
+- **Buffered window:** it renders a window of consecutive blocks (so context
+  spans paragraph boundaries) and **re-renders only when the active block nears a
+  window edge** — every few paragraphs, not per word. On a shift, a layout effect
+  recenters instantly (imperceptible: center content unchanged, only faded edges
+  differ). Block lookup is the pure `model/blocks.ts` (`blockIndexForWord` over a
+  **monotonic** `buildBlockStarts` — empty blocks carry the next word's id so the
+  binary search can't misfire).
+- **Sharp, not blurred:** the top/bottom fade is an alpha `mask-image`; readable
+  lines stay crisp.
+- **Uniform line grid:** line-height is a **length** (`--rc-line`, inherited as a
+  fixed px value) so every line box is identical, and the `translateY` is
+  **snapped to whole-line multiples** so visible lines are always full boxes (no
+  half-clipped "short" line) while the active line stays centred. Paragraph
+  breaks are a **zero-height** hairline (`::before`), so they mark the boundary
+  without stealing a text row.
+- **Height** is a live 3/5 setting (`contextLines`, default 3); the box height
+  (`--rc-lines`) and window adapt. **Font tracks the anchor** (`max(0.6rem,
+  0.32em)`) so the strip scales with the font-size slider.
+- **Vertical stack, not overlay:** the whole stage is a **centered flex column** —
+  word → `1.8em` gap → strip. The gap is in word-`em`, so it scales with the
+  pause tick it must clear (both scale in word-`em`); non-overlap is guaranteed
+  by layout at any font size / line count. The word grid is untouched, so the ORP
+  anchor's fixed x is unaffected.
+- **Click-to-seek (delegated):** one `onClick` on the container resolves the
+  nearest `[data-word-id]` and calls `pacer.seek` — parity with the main reader,
+  no per-word handlers. The strip stays `aria-hidden` (peripheral visual echo),
+  so this is a mouse convenience; keyboard/main-reader seeking stay authoritative.
+
+`model/blocks.ts` is portable; `RsvpContextStrip.tsx` (transform/mask/DOM) is
+web-coupled — an RN port reproduces "pinned line + text scrolls under it" (with a
+line-snapped offset) with `Animated`, not a page swap.
+
 ---
 
 ## 9. Virtualization & the reading surface — `src/reader/Reader.tsx`
@@ -302,6 +352,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `parsers/epubStructure.ts` | EPUB container/OPF spine + XHTML → blocks |
 | `reader/bionic.ts` | `splitBionic` head/tail math |
 | `pacer/orp.ts` | ORP index + split |
+| `model/blocks.ts` | flat-word-index → block lookup (binary search) |
 | `pacer/dwell.ts` | dwell multipliers |
 | `pacer/usePacer.ts` | clock: timing, dwell, ≤1/frame clamp, chunk stepping, pub/sub (rAF & React exist in RN) |
 | mode *logic* (lead/chunk index math, `firstWordlikeFrom`) | which words to highlight |
@@ -336,3 +387,6 @@ Markdown parser is portable.
 - **M7** (2026-06-26): polish — keyboard transport/seeking, reader font-size +
   line-width controls (CSS variables + `layoutKey` reposition), empty/error
   states. Final V1 milestone; docs audited against the shipped code.
+- **Post-V1** (issue #1): RSVP context strip — additive dim current-paragraph
+  view under the flashing word (`RsvpContextStrip.tsx` + pure `model/blocks.ts`),
+  toggleable, default on. On `feature/rsvp-context-strip`.

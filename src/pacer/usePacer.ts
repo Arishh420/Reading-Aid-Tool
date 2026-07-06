@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Word } from '../model/types';
 
 /**
@@ -203,5 +203,13 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
     [commit],
   );
 
-  return { indexRef, playing, atEnd, play, pause, toggle, restart, seek, subscribe };
+  // Memoize the returned object so its identity is stable across renders and
+  // only changes when `playing`/`atEnd` actually flip (the callbacks and
+  // indexRef are already stable). Consumers whose effects depend on `pacer`
+  // (e.g. the context strip's subscription) then don't re-run on every unrelated
+  // parent render — WPM changes, settings toggles, etc.
+  return useMemo(
+    () => ({ indexRef, playing, atEnd, play, pause, toggle, restart, seek, subscribe }),
+    [playing, atEnd, play, pause, toggle, restart, seek, subscribe],
+  );
 }

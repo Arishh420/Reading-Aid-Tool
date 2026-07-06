@@ -145,6 +145,8 @@ export default function App() {
                 <Settings
                   bionic={bionic}
                   onBionicChange={setBionic}
+                  showBionic={mode !== 'rsvp'}
+                  showTextSize={mode !== 'rsvp'}
                   naturalPauses={naturalPauses}
                   onNaturalPausesChange={setNaturalPauses}
                   display={display}
@@ -192,6 +194,7 @@ export default function App() {
 
           {mode === 'rsvp' && (
             <Rsvp
+              document={doc}
               words={words}
               pacer={pacer}
               wpm={wpm}

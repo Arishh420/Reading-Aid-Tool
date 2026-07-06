@@ -420,14 +420,24 @@ button:hover {
   margin: 0 0 1.1rem;
 }
 
-/* RSVP mode — single word at a fixed focal point. */
+/* RSVP mode — single word at a fixed focal point.
+   Vertical stack: the word (with its focal + pause ticks) and the context strip
+   are one centered flex column separated by an em-scaled gap. Because the gap is
+   in word-em, it scales with the font-size slider in lockstep with the pause
+   tick it must clear (tick reaches ~1.1em below the word) — so the strip never
+   overlaps the word/tick at any font size or context-line count, and reads as
+   clearly separated/peripheral rather than attached. */
 .rsvp-stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1.8em;
   padding: 1rem 1.25rem;
+  overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
     monospace;
   line-height: 1.2;
@@ -492,4 +502,99 @@ button:hover {
   border-radius: 0.04em;
   background: var(--accent);
   opacity: 0;
+}
+
+/* RSVP context strip (issue #1) — dim, small, glanceable current paragraph.
+   A flex-column sibling below the word (not absolutely positioned): the word
+   grid is untouched, so the ORP anchor's fixed x is unaffected.
+
+   The active word's line is pinned to the box center line; the text scrolls
+   under it (see .rsvp-context-scroll). Height adapts to --rc-lines; --rc-line is
+   ONE line box, used both for the box height and (as a length) for line-height —
+   a length inherits as a fixed px value, so every descendant line box is
+   identical (uniform line heights, no line-height re-resolution per element).
+   Font-size TRACKS the anchor (0.32 × the word, floored) so the strip scales
+   with the font-size slider and the two read as one unit. Text stays SHARP — the
+   edge fade is an alpha mask, not a blur. */
+.rsvp-context {
+  --rc-line: 1.5em; /* one line box, in context-font units */
+  position: relative;
+  width: min(90%, var(--reading-width));
+  height: calc(var(--rc-lines, 3) * var(--rc-line));
+  overflow: hidden;
+  font-family: var(--font-body);
+  font-size: max(0.6rem, 0.32em);
+  line-height: var(--rc-line);
+  color: var(--muted);
+  opacity: 0.8;
+  /* Interactive: words are click-to-seek (delegated on the container). */
+  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+}
+
+/* The scrolling content — translated imperatively (translateY) so the active
+   line sits on the center line; CSS-transitioned so lines rise smoothly. */
+.rsvp-context-scroll {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  transition: transform 350ms ease-out;
+  will-change: transform;
+}
+
+.rsvp-context-para {
+  margin: 0;
+  padding: 0;
+  position: relative;
+  text-align: center;
+}
+
+/* Words are click-to-seek; a hover tint hints it (painted, no reflow). */
+.rsvp-context-word {
+  cursor: pointer;
+}
+
+.rsvp-context-word:hover {
+  color: var(--accent);
+}
+
+/* Paragraph break: a faint centered hairline drawn at the paragraph's top edge.
+   Absolutely positioned & zero-height, so it marks the boundary WITHOUT adding a
+   line box — the uniform line grid (and the "N full lines of text" count) is
+   preserved; the break is styling between paragraphs, not a blank row. */
+.rsvp-context-para:not(:first-child)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3em;
+  height: 0;
+  border-top: 1px solid currentColor;
+  opacity: 0.35;
+}
+
+/* Active word: a clearly visible marker that costs no layout — accent color +
+   an underline. No font-weight change (bold widths would re-wrap / jitter the
+   centered line); the underline and color are painted, so the line box is
+   unchanged. */
+.rsvp-context-active {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
 }
