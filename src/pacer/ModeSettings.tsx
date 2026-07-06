@@ -73,18 +73,47 @@ export function ModeSettings({
       )}
 
       {mode === 'rsvp' && (
-        <label className="mode-setting">
-          <span className="muted small">Font size</span>
-          <input
-            type="range"
-            min={1.5}
-            max={6}
-            step={0.5}
-            value={rsvp.fontSize}
-            onChange={(e) => onRsvpChange({ fontSize: Number(e.target.value) })}
-          />
-          <span className="muted small">{rsvp.fontSize}rem</span>
-        </label>
+        <>
+          <label className="mode-setting">
+            <span className="muted small">Font size</span>
+            <input
+              type="range"
+              min={1.5}
+              max={6}
+              step={0.5}
+              value={rsvp.fontSize}
+              onChange={(e) =>
+                onRsvpChange({ ...rsvp, fontSize: Number(e.target.value) })
+              }
+            />
+            <span className="muted small">{rsvp.fontSize}rem</span>
+          </label>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={rsvp.showContext}
+              onChange={(e) =>
+                onRsvpChange({ ...rsvp, showContext: e.target.checked })
+              }
+            />
+            Show context
+          </label>
+          {rsvp.showContext && (
+            <label className="mode-setting">
+              <span className="muted small">Context lines</span>
+              <select
+                className="mode-select"
+                value={rsvp.contextLines}
+                onChange={(e) =>
+                  onRsvpChange({ ...rsvp, contextLines: Number(e.target.value) })
+                }
+              >
+                <option value={3}>3</option>
+                <option value={5}>5</option>
+              </select>
+            </label>
+          )}
+        </>
       )}
 
       {mode === 'chunk' && (

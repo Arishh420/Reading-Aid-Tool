@@ -126,6 +126,153 @@
   per step with `threshold ×= N`, keeping effective WPM consistent; dwell taken
   from the chunk's final word. Flowing/RSVP use size 1.
 
+## Post-V1 — RSVP context strip (issue #1)
+
+- **D42 · Additive strip, off the per-tick render path.** The context strip is a
+  new independent pacer subscriber; it moves the highlight imperatively within a
+  paragraph and **re-renders only on block boundaries** (per paragraph, not per
+  word). No change to the pacer clock/timing. Reuses the chunk/lead imperative
+  pattern.
+- **D43 · Positioned so the RSVP anchor is untouched.** The strip is a separate
+  element below the word; it cannot shift the `.rsvp-word` grid or the ORP
+  anchor's fixed x.
+  **(Positioning mechanism superseded by D49 — it was absolutely positioned at
+  `top:68%`, now it's a flex-column sibling. The "anchor untouched" guarantee
+  still holds: the word grid is unchanged either way.)**
+- **D44 · Plain dim text, no bionic.** *User fork.* Rendered muted/small in the
+  body font (not the monospace flash, no bionic bolding) so it stays peripheral —
+  you notice position without starting to *read* it, which would reintroduce
+  exactly what RSVP removes.
+- **D45 · Clamp to ~2–3 lines + soft fade, default ON.** *User fork.* Keeps the
+  strip compact/glanceable; the active line is centered by scrolling on line
+  change only (never per word). Toggle "Show context" in RSVP settings, default
+  on; RSVP-only by construction.
+  **(Scroll model superseded by D47 — the clamp + per-line `scrollTop` jump read
+  as a page-flip; default-on toggle and RSVP-only still hold.)**
+- **D46 · Shared pure `blockIndexForWord` in `model/`.** Extracted the
+  word→block binary search as a portable helper (Reader keeps its inline copy for
+  now to avoid touching the hot path; the ~10-line duplication is acknowledged).
+- **D47 · Continuous pinned-line scroll (supersedes D45's page-flip).** *User
+  direction.* The active word's line is pinned to the box center line and the
+  paragraph text scrolls under it via a CSS-transitioned `translateY` on the
+  inner content — lines rise one at a time. **Why:** a 3-line clamp with a
+  block-swap forces the reader to re-orient at each boundary, which breaks the
+  fixed-fixation benefit RSVP exists to provide; pinning the line and flowing the
+  text under it keeps the fixation point stationary (the RSVP principle applied
+  to the strip). A **buffered window** of blocks is rendered so context spans
+  paragraph boundaries; React re-renders only when the active block nears a window
+  edge (verified: ~7 re-renders across 180 words at 5 lines), and the recenter on
+  a shift is instant/imperceptible. Text stays sharp — the edge fade is an alpha
+  mask, not a blur. *(The `translateY` is now snapped to the line grid — D52.)*
+- **D48 · "Context lines" is a live 3/5/7 setting (default 5).** *User fork.* Odd
+  values guarantee a centered line with equal context above/below. Stored as
+  `contextLines` in `RsvpSettings` (spread on update); the box height and
+  buffered window adapt live. Shown only when "Show context" is on.
+  **(Range/default superseded by D50 — now 3/5, default 3.)**
+
+### Bug-fix pass (2026-07-02) — vertical crowding + line rendering
+
+- **D49 · Vertical stack via a centered flex column (supersedes D43's absolute
+  `top:68%`).** *User direction.* The stage is a `flex-direction: column`,
+  centered, with **word → `1.8em` gap → strip**. **Why:** a fixed percentage
+  `top` is decoupled from both the word's rendered height and the pause tick's
+  reach (`top: calc(100% + 0.95em)`), which **both scale in word-`em`** — so at
+  large font / many lines the tick grew down into the strip (overlap) and the
+  strip read as *attached* to the word. Expressing the separation as an `em` gap
+  on the flex column makes it scale in lockstep with the tick it must clear
+  (clear space `= (1.8 − ~1.1)·F = ~0.7·F > 0` at every font size), so
+  non-overlap is guaranteed *by layout*, not by hand-tuned numbers, and the strip
+  reads as peripheral. Walked through both line counts × min/max font: no overlap.
+- **D50 · Context lines reduced to 3/5, default 3 (supersedes D48's 3/5/7,
+  default 5).** *User fork.* 7 was the main case that collided (too tall) and is
+  dropped; the user finds 3 cleanest, so it's the default.
+- **D51 · Context font tracks the anchor.** *User direction.* The strip's
+  `font-size` is `max(0.6rem, 0.32em)` — proportional to the word (the slider
+  sizes the whole stage), floored so it stays legible at the smallest anchor. A
+  bigger anchor gives proportionally bigger context, so the two feel like one
+  unit rather than two independent widgets.
+- **D52 · Uniform line grid: length line-height + line-snapped translate +
+  zero-height paragraph separator.** *User direction (fix "inconsistent line
+  heights" + "paragraph break must not steal a text row").* Three coupled moves:
+  (1) line-height is set as a **length** (`--rc-line`, inherited as a fixed px
+  value) instead of a unitless number, so every descendant line box is identical
+  and can't re-resolve per element; (2) the scroll `translateY` is **snapped to
+  whole `--rc-line` multiples** so visible lines are always full line boxes (the
+  ideal offset is already an integer multiple, so the active line stays
+  dead-centre) — this fixes the half-clipped line that read as "smaller"; (3) the
+  paragraph break is a faint **zero-height** hairline (absolutely positioned
+  `::before`) so it marks the boundary **without** adding a line box, preserving
+  the "N full lines of text" count and the uniform grid. Active-word emphasis is
+  color-only (no bold) so it can't re-wrap the centered line.
+  **(Gotcha: the zero-height `::before` needs `.rsvp-context-para` to be
+  `position: relative`, which made the paragraph the spans' `offsetParent` and
+  broke the offsetTop-based centering — see D53. The separator stays; the
+  measurement was made offsetParent-independent.)**
+
+### Bug-fix pass 2 (2026-07-02) — strip sync regression + latent hardening
+
+- **D53 · Rect-based, offsetParent-independent centering (supersedes D52's
+  offsetTop measurement).** *Fix a desync regression.* Adding `position:
+  relative` to the paragraph (for D52's separator) silently changed the word
+  spans' `offsetParent` from the scroll container to their `<p>`, so
+  `el.offsetTop` collapsed to a within-paragraph value and `center()` scrolled to
+  the wrong place — the strip showed an unrelated earlier paragraph (word early
+  in its block) or went blank (word deep in a long block), with the highlight
+  off-screen. **Why rects:** `getBoundingClientRect()` of the active span vs. the
+  scroll container measures the real on-screen delta regardless of offsetParent;
+  the live `translateY` is read from the computed matrix (`DOMMatrixReadOnly.m42`)
+  rather than a tracked target, so a re-center *mid-transition* retargets from the
+  actual position (no jitter at fast WPM). The D52 line-snap is unchanged, now fed
+  a correct offset. Still zero React renders per word.
+- **D54 · Visible, reflow-free active-word marker.** *Fix "no highlight
+  color".* The active word uses `color: var(--accent)` **plus an underline**
+  (`text-decoration`), not `font-weight` — weight would change glyph widths and
+  re-wrap the centered line, while color + underline are painted and cost no
+  layout. (D52's color-only `var(--text)` was too subtle and, under the D53
+  regression, usually scrolled out of view.)
+- **D55 · Monotonic `buildBlockStarts` (supersedes the MAX_SAFE_INTEGER
+  sentinel).** *Fix a latent second desync path.* A word-less block (possible
+  from PDF/EPUB) was given `MAX_SAFE_INTEGER`, which broke the sorted precondition
+  of the block-lookup binary search — one mid-document empty block corrupted every
+  lookup after it. Now an empty block carries the **next** word's id (the running
+  count), so the array stays non-decreasing and an empty block never wins the
+  search (its start ties with the following real block; ties resolve later).
+  Verified headlessly (empty blocks mid/leading/trailing; old sentinel shown to
+  misfire where the fix is correct).
+- **D56 · Memoized pacer object + stable strip effect deps.** *Fix
+  re-subscription churn.* `usePacer` now returns a `useMemo`'d object (identity
+  changes only when `playing`/`atEnd` flip), and the strip depends on the stable
+  `subscribe`/`indexRef` (destructured) rather than the whole `pacer` object — so
+  it subscribes **once**, not on every parent render (WPM, settings, …).
+
+### Post-V1 additions (2026-07-02) — strip interactions + mode-aware controls
+
+- **D57 · Context-strip words are click-to-seek, via delegation.** *User
+  direction.* One `onClick` on the strip container walks to the nearest
+  `[data-word-id]` and calls `pacer.seek(Number(id))` — parity with the main
+  reader, and no per-word handlers (stays off the per-tick render path; `seek`
+  snaps to the nearest word-like token, so clicking punctuation is fine). The
+  strip's `pointer-events` flips from `none` to `auto`; words show a pointer
+  cursor + hover tint. **A11y note:** the strip stays `aria-hidden` (it's a
+  peripheral visual echo of the reader), so this is a mouse convenience — the
+  accessible seek paths remain the main reader's click and the keyboard transport.
+- **D58 · Hide the bionic controls in RSVP (don't disable, don't reset).** *User
+  direction.* RSVP flashes one ORP-anchored word; bionic bolding doesn't apply,
+  so the toggle + intensity chips are a `showBionic` gate in `Settings`
+  (`mode !== 'rsvp'`). They're **not rendered** in RSVP but their state is
+  untouched, so they return exactly as left when switching back to flowing/chunk.
+  (Line width stays visible in RSVP — it drives the word grid's max-width and the
+  strip width; only Text size is RSVP-irrelevant, handled by D59.)
+- **D59 · Hide the global Text size slider in RSVP.** *User fork (chose "hide"
+  over unifying / disabling).* In RSVP the global `--reader-font-size` does
+  nothing (RSVP sizes its stage from its own Font size control), so the slider is
+  a `showTextSize` gate in `Settings` (`mode !== 'rsvp'`) — same pattern as D58.
+  **Why hide, not unify:** body size and RSVP-word size have different ranges and
+  purposes and are worth keeping independent (a comfortable body size *and* a big
+  RSVP word); unifying would merge `ReaderDisplay.fontSize` with
+  `RsvpSettings.fontSize` and lose that. **Line width stays** in RSVP (it sizes
+  the word grid + strip). State is untouched; the slider returns on mode switch.
+
 ## Documentation discipline (2026-06-26, established before M6)
 
 - **D33 · ARCHITECTURE.md + DECISIONS.md + living PROJECT_CONTEXT.md, maintained

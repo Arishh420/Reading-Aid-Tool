@@ -30,6 +30,18 @@ const INTENSITIES: BionicIntensity[] = ['low', 'medium', 'high'];
 interface SettingsProps {
   bionic: BionicSettings;
   onBionicChange: (next: BionicSettings) => void;
+  /**
+   * Whether to render the bionic controls. Hidden in RSVP mode (one ORP-anchored
+   * word — bionic doesn't apply). State is untouched, so the toggle/intensity
+   * return unchanged when switching back to a laid-out mode.
+   */
+  showBionic: boolean;
+  /**
+   * Whether to render the global Text size slider. Hidden in RSVP mode, where it
+   * does nothing (RSVP has its own Font size); Line width stays, since it does
+   * size the RSVP word grid + context strip. State is untouched either way.
+   */
+  showTextSize: boolean;
   /** Punctuation-aware pacing toggle (refinement A) — applies to every mode. */
   naturalPauses: boolean;
   onNaturalPausesChange: (next: boolean) => void;
@@ -40,6 +52,8 @@ interface SettingsProps {
 export function Settings({
   bionic,
   onBionicChange,
+  showBionic,
+  showTextSize,
   naturalPauses,
   onNaturalPausesChange,
   display,
@@ -47,32 +61,36 @@ export function Settings({
 }: SettingsProps) {
   return (
     <div className="settings">
-      <label className="settings-toggle">
-        <input
-          type="checkbox"
-          checked={bionic.enabled}
-          onChange={(e) => onBionicChange({ ...bionic, enabled: e.target.checked })}
-        />
-        Bionic reading
-      </label>
+      {showBionic && (
+        <>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={bionic.enabled}
+              onChange={(e) => onBionicChange({ ...bionic, enabled: e.target.checked })}
+            />
+            Bionic reading
+          </label>
 
-      <div
-        className={`settings-intensity${bionic.enabled ? '' : ' disabled'}`}
-        role="group"
-        aria-label="Bionic intensity"
-      >
-        {INTENSITIES.map((level) => (
-          <button
-            key={level}
-            type="button"
-            className={`chip${bionic.intensity === level ? ' active' : ''}`}
-            disabled={!bionic.enabled}
-            onClick={() => onBionicChange({ ...bionic, intensity: level })}
+          <div
+            className={`settings-intensity${bionic.enabled ? '' : ' disabled'}`}
+            role="group"
+            aria-label="Bionic intensity"
           >
-            {level[0].toUpperCase() + level.slice(1)}
-          </button>
-        ))}
-      </div>
+            {INTENSITIES.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={`chip${bionic.intensity === level ? ' active' : ''}`}
+                disabled={!bionic.enabled}
+                onClick={() => onBionicChange({ ...bionic, intensity: level })}
+              >
+                {level[0].toUpperCase() + level.slice(1)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <label className="settings-toggle">
         <input
@@ -83,20 +101,22 @@ export function Settings({
         Natural pauses
       </label>
 
-      <label className="mode-setting">
-        <span className="muted small">Text size</span>
-        <input
-          type="range"
-          min={0.9}
-          max={1.7}
-          step={0.05}
-          value={display.fontSize}
-          onChange={(e) =>
-            onDisplayChange({ ...display, fontSize: Number(e.target.value) })
-          }
-          aria-label="Reader text size"
-        />
-      </label>
+      {showTextSize && (
+        <label className="mode-setting">
+          <span className="muted small">Text size</span>
+          <input
+            type="range"
+            min={0.9}
+            max={1.7}
+            step={0.05}
+            value={display.fontSize}
+            onChange={(e) =>
+              onDisplayChange({ ...display, fontSize: Number(e.target.value) })
+            }
+            aria-label="Reader text size"
+          />
+        </label>
+      )}
 
       <label className="mode-setting">
         <span className="muted small">Line width</span>
