@@ -96,10 +96,15 @@
 - **D24 · Auto-scroll on line change only, 40% band.** Avoids per-word vertical
   jitter; keeps the active line in a fixed reading band.
 - **D25 · Imperative `classList` for lead/chunk tints.** Re-applied every step
-  and after any Reader re-render (via a layout effect, no flash), cleared before
-  re-adding so virtualization can't leak stale classes. The current-word overlay
-  and RSVP anchor are separate non-React-styled elements, so those are fully
-  robust.
+  and whenever the virtualizer's mounted span set changes (scroll). The trigger
+  is a `useLayoutEffect([items])` inside `Reader` that calls an `onRangeChange`
+  callback passed by each mode; the callback reads `pacer.indexRef.current`
+  imperatively and calls `apply()` — no React state, no re-render, no flash.
+  Both callback and the effect dep (`items`) are stable across pacer ticks, so
+  this fires only on scroll, never per-tick. Cleared before re-adding so
+  virtualization can't leak stale classes. The current-word overlay and RSVP
+  anchor are separate non-React-styled elements and are unaffected by
+  virtualizer remounts.
 
 ## Refinement A — Punctuation-aware pacing
 
