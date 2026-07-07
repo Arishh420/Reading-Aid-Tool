@@ -291,6 +291,46 @@ crash-inducing). Named entities use a separate code path and are unaffected.
   returns both chapters' text; raw entity text present in output; parse does not throw.
   Build clean. (2026-07-07, fix/epub-entity-range-guard)
 
+### F18 — pdfjs-dist v6: `loadingTask.destroy()` is the correct cleanup; the resolved `PDFDocumentProxy` has no `.destroy()` 🧪
+
+`pdfjs.getDocument({ data })` returns a `PDFDocumentLoadingTask`. The original
+code immediately chained `.promise` on it, discarding the task reference:
+
+```typescript
+const pdf = await pdfjs.getDocument({ data }).promise; // loadingTask lost
+```
+
+This means `loadingTask.destroy()` — which terminates the worker and frees all
+associated resources — was never reachable on any exit path (normal return,
+scanned-PDF throw, or any intermediate `await` throw).
+
+API confirmed from `pdfjs-dist/types/src/display/api.d.ts` (v6.0.227):
+- `PDFDocumentLoadingTask.destroy(): Promise<void>` — "Abort all network
+  requests and destroy the worker." This is the correct and only cleanup needed.
+- `PDFDocumentProxy.cleanup(keepLoadedFonts?)` — clears internal caches but
+  does NOT terminate the worker. Not needed when `loadingTask.destroy()` is
+  called, because `destroy()` subsumes it.
+- `PDFDocumentProxy` has no `.destroy()` method; that's on `PDFPageProxy` and
+  `PDFWorker` only.
+
+`destroy()` returns `Promise<void>` and must be awaited in the `finally` block.
+Awaiting in `finally` means the return value (or throw) is held until worker
+shutdown completes; the delay is negligible.
+
+**Open question flagged for browser verification:** whether `loadingTask.destroy()`
+is safe when `loadingTask.promise` was rejected before the document loaded
+(e.g., corrupt/truncated PDF). The `destroyed: boolean` property on the task
+and the cancellation design of pdfjs suggest it is, but this requires a browser
+test to confirm (see D66 browser test procedure).
+
+*Verified:* 🧪 Build-verified — `tsc -b` + `vite build` clean after the fix;
+TypeScript confirmed that `loadingTask.destroy()` exists on `PDFDocumentLoadingTask`
+and that `await` on its `Promise<void>` return is correctly typed. Behavioral
+regression (normal PDF parses correctly, scanned PDF throws SCANNED_MESSAGE) is
+**not headlessly verifiable** because pdfjs requires browser Worker/canvas APIs.
+The leak fix itself is verified by code inspection + browser test.
+(2026-07-07, fix/pdfjs-destroy-cleanup)
+
 ---
 
 ## Change log

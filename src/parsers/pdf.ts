@@ -92,28 +92,33 @@ const SCANNED_MESSAGE =
   'Try converting it to Markdown or EPUB and loading that instead.';
 
 export async function parsePdf(data: ArrayBuffer, title?: string): Promise<Document> {
-  const pdf = await pdfjs.getDocument({ data }).promise;
+  const loadingTask = pdfjs.getDocument({ data });
+  try {
+    const pdf = await loadingTask.promise;
 
-  const pages: PdfLine[][] = [];
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    const content = await page.getTextContent();
-    pages.push(itemsToLines(content.items as TextItem[]));
+    const pages: PdfLine[][] = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      pages.push(itemsToLines(content.items as TextItem[]));
+    }
+
+    const paragraphs = linesToParagraphs(pages);
+
+    // No meaningful text across the whole document → image-only PDF.
+    const visibleChars = paragraphs.join(' ').replace(/\s/g, '').length;
+    if (visibleChars < Math.max(16, pdf.numPages * 2)) {
+      throw new Error(SCANNED_MESSAGE);
+    }
+
+    const blocks: Block[] = paragraphs.map((text, i) => ({
+      id: `b${i}`,
+      type: 'paragraph',
+      words: tokenize(text),
+    }));
+
+    return { title, blocks: reindexWords(blocks) };
+  } finally {
+    await loadingTask.destroy();
   }
-
-  const paragraphs = linesToParagraphs(pages);
-
-  // No meaningful text across the whole document → image-only PDF.
-  const visibleChars = paragraphs.join(' ').replace(/\s/g, '').length;
-  if (visibleChars < Math.max(16, pdf.numPages * 2)) {
-    throw new Error(SCANNED_MESSAGE);
-  }
-
-  const blocks: Block[] = paragraphs.map((text, i) => ({
-    id: `b${i}`,
-    type: 'paragraph',
-    words: tokenize(text),
-  }));
-
-  return { title, blocks: reindexWords(blocks) };
 }
