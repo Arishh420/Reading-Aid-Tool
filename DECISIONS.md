@@ -157,6 +157,11 @@
 - **D46 · Shared pure `blockIndexForWord` in `model/`.** Extracted the
   word→block binary search as a portable helper (Reader keeps its inline copy for
   now to avoid touching the hot path; the ~10-line duplication is acknowledged).
+  **(Rationale reversed — fix/reader-use-shared-blocks.)** The audit (issue #16)
+  showed `scrollToWord` is called on seek events, not per tick, so the "hot path"
+  concern didn't apply. Reader's inline copy also used the stale `MAX_SAFE_INTEGER`
+  sentinel (bug D55 records as fixed). Reader now imports `buildBlockStarts` /
+  `blockIndexForWord` from `model/blocks.ts`; the inline copy is deleted.
 - **D47 · Continuous pinned-line scroll (supersedes D45's page-flip).** *User
   direction.* The active word's line is pinned to the box center line and the
   paragraph text scrolls under it via a CSS-transitioned `translateY` on the
@@ -244,6 +249,10 @@
   search (its start ties with the following real block; ties resolve later).
   Verified headlessly (empty blocks mid/leading/trailing; old sentinel shown to
   misfire where the fix is correct).
+  **(Completed — fix/reader-use-shared-blocks.)** Reader.tsx previously kept a
+  separate inline copy of this logic (acknowledged in D46) still using the old
+  sentinel. That copy is now deleted; Reader imports `buildBlockStarts` /
+  `blockIndexForWord` directly, closing the latent drift.
 - **D56 · Memoized pacer object + stable strip effect deps.** *Fix
   re-subscription churn.* `usePacer` now returns a `useMemo`'d object (identity
   changes only when `playing`/`atEnd` flip), and the strip depends on the stable

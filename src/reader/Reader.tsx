@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Block, Document, Word } from '../model/types';
+import { buildBlockStarts, blockIndexForWord } from '../model/blocks';
 import { BIONIC_RATIO } from './bionic';
 import { BionicText } from './BionicText';
 import type { BionicSettings } from '../ui/Settings';
@@ -114,32 +115,10 @@ function ReaderInner(
     getItemKey: (i) => document.blocks[i].id,
   });
 
-  // Flat word index -> block index. Blocks are contiguous in reading order, so
-  // a binary search over each block's first word id resolves the block.
-  const blockStarts = useMemo(
-    () =>
-      document.blocks.map((b) =>
-        b.words.length ? Number(b.words[0].id) : Number.MAX_SAFE_INTEGER,
-      ),
-    [document],
-  );
+  const blockStarts = useMemo(() => buildBlockStarts(document), [document]);
 
   const blockForWord = useCallback(
-    (wordIndex: number) => {
-      let lo = 0;
-      let hi = blockStarts.length - 1;
-      let ans = 0;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (blockStarts[mid] <= wordIndex) {
-          ans = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      return ans;
-    },
+    (wordIndex: number) => blockIndexForWord(blockStarts, wordIndex),
     [blockStarts],
   );
 
