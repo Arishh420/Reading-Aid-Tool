@@ -56,6 +56,8 @@ Both can be combined (e.g. bionic rendering *plus* an active pacer).
   breaks, toggle "Natural pauses" (default ON), applies to all three modes
 - [x] **RSVP ORP fixed anchor** (one red anchor letter pinned to a stationary x)
   + a **pause cue** (a tick that depletes over a punctuation dwell)
+- [x] **RSVP context strip** (issue #1) — dim current-paragraph view under the
+  flashing word, toggleable, default on *(on `feature/rsvp-context-strip`)*
 
 ---
 
@@ -161,7 +163,28 @@ Each mode reads from the shared `currentWordIndex` but renders differently, and 
    - **Pause cue:** a thin tick under the anchor depletes over a punctuation
      dwell (scaled by the dwell factor), so a sentence/clause boundary is felt,
      not guessed. Never moves the anchor; gated on Natural pauses.
-   - Single word per flash (chunk size fixed at 1). Settings: WPM, font size.
+   - **Context strip (issue #1):** a dim, small, glanceable view of the
+     surrounding text below the flashing word. The active word's line is **pinned
+     to a fixed center line** and the paragraph text **scrolls continuously under
+     it** (lines rise one at a time — not a page-flip), so the fixation point
+     never moves. The current word is marked in the accent color with an
+     underline (no bold — it would re-wrap the line). Every visible line is a full,
+     uniform line box; paragraph breaks show a faint hairline that doesn't steal a
+     text row. Sharp text with a soft alpha fade at the top/bottom edges. Restores
+     the spatial context RSVP
+     removes. RSVP-only; toggle "Show context" (default on); height adjustable
+     live at **3 / 5 context lines** (default 3). The context font **tracks the
+     anchor** (scales with the font-size slider), and the word + strip sit in one
+     centered stack that can't overlap at any size. **Clicking any word in the
+     strip seeks the pacer to it** (delegated, like the main reader). Additive —
+     does not touch the pacer clock or the fixed anchor.
+   - **Bionic** reading doesn't apply to a single ORP-anchored word, so the global
+     Bionic toggle + intensity are **hidden while in RSVP** (state preserved; they
+     return on switching back to flowing/chunk). The global **Text size** slider is
+     likewise hidden in RSVP (RSVP has its own Font size); **Line width stays** (it
+     sizes the RSVP word grid + strip).
+   - Single word per flash (chunk size fixed at 1). Settings: WPM, font size,
+     show context, context lines.
 2. **Flowing Highlight Bar**
    - Full text stays visible and laid out normally; a highlight sweeps word-by-word in reading order, pulling the eye forward.
    - Settings: WPM, highlight color/style, optional number of "lead" words highlighted ahead.

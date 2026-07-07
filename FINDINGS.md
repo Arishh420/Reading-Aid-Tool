@@ -144,6 +144,107 @@ font-size + line-width and keyboard transport.
 
 ---
 
+## Post-V1 techniques
+
+### F12 — "Render per block, move per word" keeps a text view off the hot path
+The RSVP context strip renders a whole paragraph but must follow the pacer
+word-by-word. The technique that keeps it off the per-tick React path: subscribe
+imperatively, **re-render (setState) only when the active word crosses a block
+boundary**, and move the highlight *within* a block by toggling a class on word
+spans. Consecutive words share a block, so renders happen per paragraph, not per
+tick.
+*Verification:* ✅ — over a 9-word/3-block sample, `blockIndexForWord` produced
+exactly **3** block changes (3 React renders) while the other 6 advances are
+imperative class swaps; every word mapped to its correct block. → Any RN port of
+a "context" view should follow the same rule: paragraph is the render unit, word
+is the imperative unit.
+
+### F13 — For a moving-context view, pin the fixation line; scroll the text under it
+The first context-strip cut clamped to 3 lines and swapped a block at a time.
+That page-flip **forces re-orientation** at each boundary — exactly the cost RSVP
+exists to remove. The fix that works: **pin the active word's line to a fixed
+center line and scroll the paragraph text underneath it** (a transitioned
+`translateY`), so the reader's fixation point never moves and only *peripheral*
+lines drift at the faded edges. Motion that happens away from the fixation point,
+one line at a time, doesn't pull the eye the way a whole-box swap does. Rendering
+is a **buffered window** of blocks translated continuously; the window shifts
+(the only React render) only near its edges.
+*Verification:* ✅ (window-shift frequency: ~7 shifts across 180 words at 5 lines,
+5 at 7 lines, active block always inside the window) + 📐 (the fixed-fixation
+rationale) — the *felt* distraction tradeoff is 👁, to be confirmed in use. →
+Port note: reproduce "pinned line + text scrolls under it", not "swap a page".
+
+### F14 — Stack the moving pieces; don't position them by percentage
+The first strip cut sat at `top: 68%` (absolute). It collided with the RSVP pause
+tick at large font / many context lines. **Root cause was systemic, not a bad
+number:** a percentage `top` is decoupled from the two things that actually move —
+the word's rendered height and the pause tick's reach (`top: calc(100% +
+0.95em)`), **both of which scale in word-`em`**. A fixed % can't track an `em`
+quantity, so *some* font size always overlaps. The fix that holds at every size:
+put word + strip in **one flex column** and express the separation as an `em` gap
+(`1.8em`) — now the gap scales in lockstep with the tick it must clear
+(`clear = (1.8 − ~1.1)·F > 0` for all `F`), and non-overlap is a property of the
+layout, not of tuning. Two companion lessons for any pinned-line scroller:
+- **Snap the scroll to the line grid.** Pixel-centering the active *glyph* leaves
+  the top/bottom lines half-clipped — they read as "a smaller line." Because the
+  box is an odd multiple of the line box, the ideal offset is already an integer
+  multiple of a line, so `Math.round(y / lineH) * lineH` keeps every visible line
+  whole *and* the active line dead-centre.
+- **Line-height as a length, not a number.** Unitless `line-height: 1.5`
+  re-resolves against each element's own font-size; a length (`1.5em` captured in
+  a var, inherited as computed px) gives every descendant an identical line box —
+  the robust cure for "inconsistent line heights."
+- **A paragraph break needn't cost a row.** A zero-height absolutely-positioned
+  hairline marks the boundary without adding a line box, so "3 context lines"
+  stays 3 lines of *text*.
+*Verification:* 📐 (the `em`-coupling algebra + the integer-multiple snap) + 🧪
+(build) — the *felt* result is 👁, to confirm in the browser. → Port note: the RN
+strip should stack (not overlay) and snap its scroll to the row height.
+
+### F15 — `offsetTop` scroll math is fragile: a positioned descendant silently moves the `offsetParent`
+The strip centers the active line with a `translateY` computed from the active
+word's offset inside the scroll container. Written as `el.offsetTop`, that offset
+is relative to the element's **`offsetParent`** — the nearest *positioned*
+ancestor. When a later change (the D52 zero-height paragraph separator) added
+`position: relative` to the paragraph purely for a `::before`, the offsetParent
+flipped from the scroll container to the `<p>`, so `offsetTop` collapsed to a
+within-paragraph value and the strip scrolled to the wrong place (unrelated
+paragraph, or blank when the word was deep in a long block). **One unrelated CSS
+line broke the sync**, and it presented as four different symptoms (desync / no
+highlight / blank-on-toggle / uneven lines) — a reminder to reason about a
+feature's data+layout flow as a whole, not symptom-by-symptom.
+- **The robust fix is measurement that doesn't depend on offsetParent:**
+  `getBoundingClientRect()` of the span vs. the scroll container gives the true
+  on-screen delta regardless of positioned ancestors, transforms, or margins.
+- **Read the live transform, not a tracked target.** Getting the current
+  `translateY` from the computed matrix (`DOMMatrixReadOnly.m42`) means a
+  re-center that fires mid-CSS-transition retargets from the actual on-screen
+  position — no jitter when words advance faster than the glide.
+*Verification:* 📐 (offsetParent semantics) + ✅ (headless: `Word.id ===` flat
+pacer index for every word, and `blockIndexForWord` resolves every word-like
+index to the block that truly contains its span) + 🧪 (build). The *visual*
+centering is 👁, to confirm in the browser. → Port note: any "scroll a container
+to center child N" logic should measure with rects (or a layout API that ignores
+offsetParent), never raw `offsetTop`.
+
+### F16 — A sentinel that isn't in-range breaks a binary search's precondition
+`buildBlockStarts` marked word-less blocks with `Number.MAX_SAFE_INTEGER`. The
+block lookup is a **binary search**, which requires a sorted (non-decreasing)
+array — and a `MAX` dropped between real starts violates that, so a single
+mid-document empty block silently corrupts every lookup after it (a second,
+latent desync path in PDF/EPUB, which *can* emit empty blocks; Markdown guards
+against them with `if (text)`). Fix: give an empty block the **next** word's id
+(the running count), keeping the array non-decreasing; the empty block then ties
+with the following real block and never wins the search (ties resolve to the
+later index).
+*Verification:* ✅ (headless: monotonic starts with empty blocks in mid/leading/
+trailing positions; every index resolves to its true owner; the old sentinel
+demonstrated to misfire on `[0, MAX, 1]` where the fix is correct). → Lesson: a
+sentinel must respect the invariant of the algorithm that consumes it — for a
+sorted-array search, "absent" has to be encoded in-range, not as a spike.
+
+---
+
 ## Documentation integrity
 
 ### F11 — "No drift" is a manual read-through, not automated verification
