@@ -57,7 +57,7 @@ Both can be combined (e.g. bionic rendering *plus* an active pacer).
 - [x] **RSVP ORP fixed anchor** (one red anchor letter pinned to a stationary x)
   + a **pause cue** (a tick that depletes over a punctuation dwell)
 - [x] **RSVP context strip** (issue #1) — dim current-paragraph view under the
-  flashing word, toggleable, default on *(on `feature/rsvp-context-strip`)*
+  flashing word, toggleable, default on *(merged, PR #23)*
 
 ---
 

@@ -389,4 +389,9 @@ Markdown parser is portable.
   states. Final V1 milestone; docs audited against the shipped code.
 - **Post-V1** (issue #1): RSVP context strip — additive dim current-paragraph
   view under the flashing word (`RsvpContextStrip.tsx` + pure `model/blocks.ts`),
-  toggleable, default on. On `feature/rsvp-context-strip`.
+  toggleable, default on. Merged to main (PR #23).
+- **Parser bug-fixes** (#10 #11 #12): PDF em/en-dash join split into
+  `ENDS_SOFT_HYPHEN`/`ENDS_DASH`; EPUB percent-encoded OPF hrefs decoded via
+  `safeDecodeHref` before zip lookup; numeric entities guarded against code points
+  above U+10FFFF (raw fallback). All in the portable layer (`pdfText.ts`,
+  `epubStructure.ts`).

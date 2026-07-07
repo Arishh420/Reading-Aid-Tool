@@ -267,7 +267,7 @@ behind them; the doc consistency itself does not.
 
 ---
 
-### F12 — `String.fromCodePoint` throws for code points above U+10FFFF; `Number.isFinite` does not guard the range ✅
+### F17 — `String.fromCodePoint` throws for code points above U+10FFFF; `Number.isFinite` does not guard the range ✅
 
 `Number.isFinite` accepts any finite number, including values above `0x10FFFF`.
 `parseInt("110000", 16)` returns `1114112`, which is finite but exceeds the Unicode
@@ -296,3 +296,8 @@ crash-inducing). Named entities use a separate code path and are unaffected.
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
+- Note on ordering: F11 sits *after* F12–F16 in file order because it was written
+  into the "Documentation integrity" section, which physically follows the
+  "Post-V1 techniques" block (F12–F16). IDs are assigned chronologically, not by
+  file position; check the highest existing number before adding one so an
+  F12-style collision doesn't recur.

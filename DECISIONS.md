@@ -370,7 +370,7 @@
   in-UI here would expand scope and touch the React layer without a design decision
   on where/how to show them.
 
----
+## Bug-fix — EPUB malformed numeric entity (issue #12)
 
 - **D65 · Guard `decodeEntities` numeric-entity path against code points above U+10FFFF.**
   Added `code >= 0 && code <= 0x10FFFF` to the `Number.isFinite` check on line 43 of
@@ -394,4 +394,8 @@
   has been moved to its correct chronological position (the 2026-06-26
   documentation-discipline section, which was established before M6) so the log is
   monotonic D1→D41. This is the one sanctioned reorder; the log remains
-  append-only otherwise.
+  append-only otherwise. Note: "monotonic D1→D41" describes numeric **assignment**
+  order, not file reading order — the latter now differs because the later Post-V1
+  sections (D42–D59) were inserted *before* the Documentation-discipline/M6/M7
+  sections in the file (parallel to the D33 situation), so a reader hits D42 before
+  D33–D41.
