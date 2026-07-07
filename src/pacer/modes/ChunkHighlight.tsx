@@ -91,6 +91,14 @@ export function ChunkHighlight({
     lineTopRef.current = top;
   }, []);
 
+  // Re-apply chunk classes after the virtualizer mounts a new span set (scroll).
+  // apply() and pacer.indexRef are both stable for the component's lifetime, so
+  // this callback never changes identity — Reader's memo is never broken by it.
+  const onRangeChange = useCallback(
+    () => apply(pacer.indexRef.current, false),
+    [apply], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer, apply]);
 
   useLayoutEffect(() => {
@@ -115,6 +123,7 @@ export function ChunkHighlight({
       document={document}
       bionic={bionic}
       onSeekWord={onSeekWord}
+      onRangeChange={onRangeChange}
     />
   );
 }

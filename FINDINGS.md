@@ -331,6 +331,45 @@ regression (normal PDF parses correctly, scanned PDF throws SCANNED_MESSAGE) is
 The leak fix itself is verified by code inspection + browser test.
 (2026-07-07, fix/pdfjs-destroy-cleanup)
 
+### F19 — Virtualizer remounts spans without imperative classes; re-apply must be driven by `items`, not React props 🧪
+
+`@tanstack/react-virtual` maintains a windowed item set: blocks that scroll out of
+the visible range are unmounted and their DOM nodes destroyed; blocks that scroll
+back in are freshly mounted. Fresh spans carry no `classList` entries —
+`pacer-lead` and `pacer-chunk` classes applied by the modes' imperative `apply()`
+are silently lost.
+
+The existing `useLayoutEffect` hooks in `FlowingHighlight` and `ChunkHighlight` did
+not observe this remount: their deps were `[document, pacer, apply]` and
+`[bionic, settings, layoutKey, pacer, apply]`. None of those change when the user
+scrolls. So pause → scroll active block off-screen → scroll back produced blank
+chunk highlights (entire visible highlight gone) and missing lead-word tints until
+the next pacer tick re-applied them.
+
+**Fix:** a `useLayoutEffect([items])` inside `Reader` calls an `onRangeChange`
+callback immediately after any virtualizer-driven commit. The callback (passed from
+each mode) reads `pacer.indexRef.current` imperatively and calls `apply()` — no
+React state, no re-render, no flash. The callback is `useCallback`-stable (empty
+transitive deps), so `Reader`'s `memo` is not broken. The `items` dep is only
+updated on scroll events, never on pacer ticks — the per-tick invariant is
+preserved.
+
+The `pacer-overlay` div (FlowingHighlight's gliding box) is a direct child of
+`reader-content`, outside the virtual item list. Its `transform`/`opacity` survive
+virtualizer re-renders unchanged — not affected by this bug.
+RSVP mode renders words in a fixed overlay element, not in Reader's virtual spans —
+also not affected.
+
+*What headless check proved:* `apply()`'s index-walk logic (`firstWordlikeFrom`
+loops) computes the correct word set for a given start index and chunk/lead size.
+Confirmed by Node.js script against a synthetic word list. ✓ build-clean after fix.
+
+*What requires browser test:* whether the re-applied highlight is visually present
+after a scroll cycle when paused. The DOM mutation is correct by construction, but
+the interaction between virtualizer commit timing, `useLayoutEffect` sequencing, and
+the browser's paint pipeline cannot be confirmed headlessly.
+(2026-07-07, fix/highlight-reapply-on-rerender)
+
 ---
 
 ## Change log

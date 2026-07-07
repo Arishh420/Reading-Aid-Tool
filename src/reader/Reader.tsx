@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from 'react';
@@ -43,6 +44,8 @@ interface ReaderProps {
   document: Document;
   bionic: BionicSettings;
   onSeekWord?: (index: number) => void;
+  /** Called after layout whenever the virtualizer's mounted item set changes (scroll). */
+  onRangeChange?: () => void;
 }
 
 const WordSpan = memo(function WordSpan({
@@ -96,7 +99,7 @@ const BlockView = memo(function BlockView({
 });
 
 function ReaderInner(
-  { document, bionic, onSeekWord }: ReaderProps,
+  { document, bionic, onSeekWord, onRangeChange }: ReaderProps,
   ref: React.Ref<ReaderHandle>,
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -171,6 +174,15 @@ function ReaderInner(
   );
 
   const items = virtualizer.getVirtualItems();
+
+  // Re-apply imperative highlights (lead/chunk classes) whenever the virtualizer
+  // mounts a new set of spans due to scrolling. The callback is stored in a ref
+  // so this effect's dep is only [items] — it never fires on pacer ticks.
+  const onRangeChangeRef = useRef(onRangeChange);
+  onRangeChangeRef.current = onRangeChange;
+  useLayoutEffect(() => {
+    onRangeChangeRef.current?.();
+  }, [items]);
 
   return (
     <div className="reader-pane" ref={scrollRef} onClick={handleClick}>

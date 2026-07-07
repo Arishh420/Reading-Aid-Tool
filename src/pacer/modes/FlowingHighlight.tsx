@@ -115,6 +115,14 @@ export function FlowingHighlight({
     [],
   );
 
+  // Re-apply lead classes after the virtualizer mounts a new span set (scroll).
+  // apply() and pacer.indexRef are both stable for the component's lifetime, so
+  // this callback never changes identity — Reader's memo is never broken by it.
+  const onRangeChange = useCallback(
+    () => apply(pacer.indexRef.current, false),
+    [apply], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // Subscribe to the pacer; reposition the overlay imperatively on each word.
   useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer, apply]);
 
@@ -145,6 +153,7 @@ export function FlowingHighlight({
       document={document}
       bionic={bionic}
       onSeekWord={onSeekWord}
+      onRangeChange={onRangeChange}
     />
   );
 }
