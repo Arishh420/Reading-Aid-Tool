@@ -342,6 +342,34 @@
   heuristic; the dash is punctuation that should stay attached. Alternative rejected:
   treat uppercase-after-dash as a sentence break and insert a space.
 
+## Bug-fix — EPUB percent-encoded hrefs silently skip chapters (issue #11)
+
+- **D62 · Decode OPF manifest hrefs before `resolvePath` + zip lookup.**
+  OPF `href` attributes are URI-encoded (e.g. `"My%20Chapter.xhtml"`), but JSZip
+  stores entries under their decoded names (`"My Chapter.xhtml"`), so a raw
+  `zip.file(href)` misses. Fix: `safeDecodeHref` wraps `decodeURIComponent` in a
+  try/catch (a bare `%` in a filename would throw; the fallback leaves the string
+  unchanged so malformed sequences fail gracefully). Decoding is applied in
+  `parseOpfSpine` before calling `resolvePath` — the right layer because (1) OPF
+  attribute interpretation belongs in the pure structure parser, not the zip I/O
+  wrapper, and (2) `resolvePath` splits on `/` and strips `#`/`?` on the decoded
+  string, so `%2F`/`%23` sequences are never misread as path separators or fragment
+  delimiters. Verified headlessly: %-encoded href resolves correctly; normal href
+  unchanged; malformed `%` falls back without throw; genuinely-missing entry
+  warns + skips. Build clean.
+- **D63 · Replace silent `continue` with `console.warn` for missing spine entries.**
+  After the D62 fix, a skipped entry means a genuinely malformed EPUB (the zip
+  is missing a file the OPF references). The bare `continue` gave no signal; the
+  warn logs `[epub] spine entry not found in zip: "…" — chapter skipped` so
+  developers can diagnose without a user needing to report "missing chapters."
+- **D64 · User-visible skipped-chapter surfacing deferred to follow-up (issue #26).**
+  Threading a `warnings: string[]` through `parseEpub` and wiring it to a UI
+  toast/banner is the correct next step, but was deliberately excluded from the
+  #11 fix to keep the change minimal and focused. Filed as issue #26. The
+  `console.warn` is the interim signal. Alternative rejected now: surfacing warnings
+  in-UI here would expand scope and touch the React layer without a design decision
+  on where/how to show them.
+
 ---
 
 ## Corrections
