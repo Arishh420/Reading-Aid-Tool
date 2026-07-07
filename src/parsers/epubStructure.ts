@@ -88,9 +88,22 @@ export function parseOpfSpine(opfXml: string, opfPath: string): string[] {
     if (!item) continue;
     const isContent =
       item.type.includes('xhtml') || /\.x?html?($|[?#])/i.test(item.href);
-    if (isContent) hrefs.push(resolvePath(opfDir, item.href));
+    if (isContent) hrefs.push(resolvePath(opfDir, safeDecodeHref(item.href)));
   }
   return hrefs;
+}
+
+/**
+ * Decode a percent-encoded OPF href so zip lookups match the stored filenames.
+ * Falls back to the original string if the sequence is malformed (e.g. a bare
+ * "%" in a filename that was never encoded in the first place).
+ */
+export function safeDecodeHref(href: string): string {
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
 }
 
 /** Resolve a relative href against a base directory (handles ./ and ../). */
