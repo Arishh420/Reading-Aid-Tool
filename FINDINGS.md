@@ -267,6 +267,32 @@ behind them; the doc consistency itself does not.
 
 ---
 
+### F12 — `String.fromCodePoint` throws for code points above U+10FFFF; `Number.isFinite` does not guard the range ✅
+
+`Number.isFinite` accepts any finite number, including values above `0x10FFFF`.
+`parseInt("110000", 16)` returns `1114112`, which is finite but exceeds the Unicode
+scalar-value ceiling (`0x10FFFF` = 1114111). `String.fromCodePoint(1114112)` throws
+`RangeError: Invalid code point 1114112`, which propagates uncaught out of
+`decodeEntities` → `stripTags` → `xhtmlToBlocks` → `parseEpub`, aborting the entire
+book parse. One malformed entity anywhere in any chapter of the book was sufficient
+to make the whole file unreadable.
+
+The correct guard is `Number.isFinite(code) && code >= 0 && code <= 0x10FFFF`.
+Surrogates (0xD800–0xDFFF) lie within [0, 0x10FFFF] and do NOT cause a throw; they
+pass through as lone-surrogate characters (technically invalid UTF-16, but not
+crash-inducing). Named entities use a separate code path and are unaffected.
+
+*Verified:* ✅ headless check (esbuild → node):
+- `decodeEntities('&#x41;')` → `"A"`, `decodeEntities('&#233;')` → `"é"` (valid entities still decode)
+- `decodeEntities('before &#x110000; after')` → `"before &#x110000; after"` (no throw, raw fallback)
+- `decodeEntities('&#xD800;')` → decoded char (surrogate: no throw)
+- `decodeEntities('&amp;')` → `"&"` (named entity unaffected)
+- Full `parseEpub` of a two-chapter EPUB containing `&#x110000;` in chapter 1 body:
+  returns both chapters' text; raw entity text present in output; parse does not throw.
+  Build clean. (2026-07-07, fix/epub-entity-range-guard)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.

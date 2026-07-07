@@ -372,6 +372,21 @@
 
 ---
 
+- **D65 · Guard `decodeEntities` numeric-entity path against code points above U+10FFFF.**
+  Added `code >= 0 && code <= 0x10FFFF` to the `Number.isFinite` check on line 43 of
+  `epubStructure.ts`. `Number.isFinite` only rejects `NaN`/`Infinity`; it passes
+  `0x110000` (1114112), which is finite but one above the Unicode scalar-value ceiling,
+  causing `String.fromCodePoint` to throw `RangeError` and abort the entire parse.
+  Fallback for out-of-range: return `whole` (the raw entity text, e.g. `&#x110000;`).
+  Rationale: consistent with the existing fallback for unrecognized named entities and
+  `parseInt → NaN`; nothing is silently lost; a reader can search the output to locate
+  the malformed content. Alternatives rejected: drop silently (loses data), emit U+FFFD
+  (mutates content the parser didn't understand). The `code >= 0` guard is redundant
+  given the regex can't produce a negative, but included for defensive symmetry.
+  Named entities take a separate `else` branch and are unaffected. Surrogates
+  (0xD800–0xDFFF) are within [0, 0x10FFFF]; `String.fromCodePoint` does not throw for
+  them — they pass through as before. Fixes #12.
+
 ## Corrections
 - **2026-06-29:** D33 was originally appended at the end of the file (after M7's
   D39–D41) under a trailing "Documentation discipline" heading, leaving M6
