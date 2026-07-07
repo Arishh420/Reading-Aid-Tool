@@ -30,8 +30,10 @@ export function isBarePageNumber(s: string): boolean {
   return false;
 }
 
-// Trailing hyphen: ASCII '-' or Unicode hyphens/dashes U+2010–U+2015.
-const ENDS_HYPHEN = /[-‐-―]$/;
+// Word-continuation hyphens: ASCII '-' (U+002D), soft hyphen (U+00AD), hyphen (U+2010).
+const ENDS_SOFT_HYPHEN = /[-\u00AD\u2010]$/;
+// Em/en dash punctuation: en dash (U+2013), em dash (U+2014).
+const ENDS_DASH = /[\u2013\u2014]$/;
 
 /**
  * Turn positioned per-page lines into reading paragraphs.
@@ -85,12 +87,15 @@ export function linesToParagraphs(pages: PdfLine[][]): string[] {
       current = line.text;
       continue;
     }
-    if (ENDS_HYPHEN.test(current)) {
-      // Line-break hyphen: join, removing it when the next fragment is a
-      // lowercase continuation (a true mid-word break).
+    if (ENDS_SOFT_HYPHEN.test(current)) {
+      // Word-break hyphen: strip it when the next fragment is a lowercase continuation.
       current = /^[a-z]/.test(line.text)
-        ? current.replace(ENDS_HYPHEN, '') + line.text
+        ? current.replace(ENDS_SOFT_HYPHEN, '') + line.text
         : current + line.text;
+    } else if (ENDS_DASH.test(current)) {
+      // Em/en dash punctuation: keep the dash. Mirror a leading space after it
+      // ("word —" → "word — next") but not for an attached dash ("word—next").
+      current += / [–—]$/.test(current) ? ' ' + line.text : line.text;
     } else {
       current += ' ' + line.text;
     }

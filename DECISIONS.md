@@ -321,6 +321,27 @@
   zero blocks (e.g. an empty/whitespace file) is rejected with a clear message
   rather than showing an empty pane.
 
+## Bug-fix — PDF em/en-dash corruption (issue #10)
+
+- **D60 · Split `ENDS_HYPHEN` into `ENDS_SOFT_HYPHEN` + `ENDS_DASH` with distinct
+  join behaviours.** The original `ENDS_HYPHEN` ranged over U+2010–U+2015, which
+  included em/en dashes; a line ending in `—` followed by a lowercase line had the
+  dash silently deleted ("going—" + "but" → "goingbut"). Fix: `ENDS_SOFT_HYPHEN`
+  covers only true word-continuation hyphens (ASCII `-`, U+00AD soft hyphen,
+  U+2010 hyphen) and de-hyphenates as before; `ENDS_DASH` covers U+2013/U+2014 and
+  keeps the dash with no space. A sub-check inside the `ENDS_DASH` branch mirrors a
+  leading space when present ("going —" + "but" → "going — but") so space-padded
+  dashes stay symmetric. Verified headlessly: 8 input/output pairs including the
+  repro case, the spaced-dash case, soft-hyphen stripping, and the paragraph-boundary
+  guarantee (gapBefore fires before the join branch, so a dash-ended paragraph-final
+  line can never glue to the next paragraph). Build clean.
+- **D61 · No sentence-boundary heuristic for em-dash + uppercase.** When an em-dash
+  line is followed by an uppercase word ("going—" + "But"), the join produces
+  "going—But" with no space. An uppercase letter is not a reliable signal of a new
+  sentence — it could be a proper noun mid-clause. Guessing here would add a fragile
+  heuristic; the dash is punctuation that should stay attached. Alternative rejected:
+  treat uppercase-after-dash as a sentence break and insert a space.
+
 ---
 
 ## Corrections
