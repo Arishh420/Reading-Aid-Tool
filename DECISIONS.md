@@ -387,6 +387,23 @@
   (0xD800–0xDFFF) are within [0, 0x10FFFF]; `String.fromCodePoint` does not throw for
   them — they pass through as before. Fixes #12.
 
+## Bug-fix — pdf.js worker leak (issue #15)
+
+- **D66 · `try/finally` with `await loadingTask.destroy()` covers all exit paths.**
+  `pdfjs.getDocument({ data })` returns a `PDFDocumentLoadingTask` whose worker
+  persists until `loadingTask.destroy()` is called. The original code chained
+  `.promise` directly and discarded the task reference, so `destroy()` was
+  unreachable on every exit path (normal return, scanned-PDF throw, intermediate
+  `await` throw). Fix: store the task in `loadingTask`, wrap the body in
+  `try/finally`, and `await loadingTask.destroy()` in the `finally` block.
+  `destroy()` returns `Promise<void>`; awaiting in `finally` ensures the worker
+  shuts down before the call stack unwinds — the delay is negligible.
+  The fix is contained entirely inside `parsePdf`; no call sites, no types, no
+  other files change. `pdf.cleanup()` is NOT additionally needed: `loadingTask.destroy()`
+  subsumes it. Alternative rejected: calling `pdf.destroy()` — `PDFDocumentProxy`
+  has no `.destroy()` method in v6; only `PDFDocumentLoadingTask` does.
+  Fixes #15.
+
 ## Corrections
 - **2026-06-29:** D33 was originally appended at the end of the file (after M7's
   D39–D41) under a trailing "Documentation discipline" heading, leaving M6
