@@ -242,6 +242,13 @@ trailing positions; every index resolves to its true owner; the old sentinel
 demonstrated to misfire on `[0, MAX, 1]` where the fix is correct). → Lesson: a
 sentinel must respect the invariant of the algorithm that consumes it — for a
 sorted-array search, "absent" has to be encoded in-range, not as a spike.
+*Code fix completed — fix/reader-use-shared-blocks (issue #16):* Reader.tsx
+previously maintained a separate inline copy of the block-start computation still
+carrying `MAX_SAFE_INTEGER`. That copy is deleted; Reader now imports
+`buildBlockStarts` / `blockIndexForWord` from `model/blocks.ts`. Equivalence
+on all-non-empty input verified headlessly (27/27); empty-block misbehavior of
+the old sentinel also demonstrated (word 3 mapped to block 0 instead of 2 on
+`[0, MAX, 3]` input). tag: check-unit / build
 
 ---
 
