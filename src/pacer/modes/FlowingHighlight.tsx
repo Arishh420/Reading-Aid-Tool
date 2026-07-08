@@ -59,6 +59,26 @@ export function FlowingHighlight({
   const leadElsRef = useRef<HTMLElement[]>([]);
   const lineTopRef = useRef<number | null>(null);
 
+  // Clear + reassign the `pacer-lead` classes for the `lead` word-like spans
+  // after `index`. Pure DOM class bookkeeping — no scroll side effects — so
+  // it's safe to run from both the pacer-driven apply() and the scroll-driven
+  // onRangeChange path.
+  const updateLeadClasses = useCallback((handle: ReaderHandle, index: number) => {
+    for (const prev of leadElsRef.current) prev.classList.remove('pacer-lead');
+    leadElsRef.current = [];
+    let i = index;
+    for (let c = 0; c < leadRef.current; c++) {
+      const n = firstWordlikeFrom(wordsRef.current, i + 1);
+      if (n === -1) break;
+      i = n;
+      const le = handle.wordEl(n);
+      if (le) {
+        le.classList.add('pacer-lead');
+        leadElsRef.current.push(le);
+      }
+    }
+  }, []);
+
   const apply = useCallback(
     (index: number, animate: boolean, attempt = 0) => {
       const handle = readerRef.current;
@@ -69,6 +89,7 @@ export function FlowingHighlight({
       const el = handle.wordEl(index);
       if (!el) {
         // Off-window (e.g. a far seek before scroll settles): bring it in, retry.
+        // Pacer-driven only (tick/seek/restart) — never reached from onRangeChange.
         if (attempt > 8) return;
         handle.scrollToWord(index);
         requestAnimationFrame(() => apply(index, animate, attempt + 1));
@@ -90,37 +111,34 @@ export function FlowingHighlight({
       overlay.style.height = `${wRect.height}px`;
       overlay.style.opacity = '1';
 
-      // Lead words: clear the previous set, mark the next `lead` word-like spans.
-      for (const prev of leadElsRef.current) prev.classList.remove('pacer-lead');
-      leadElsRef.current = [];
-      let i = index;
-      for (let c = 0; c < leadRef.current; c++) {
-        const n = firstWordlikeFrom(wordsRef.current, i + 1);
-        if (n === -1) break;
-        i = n;
-        const le = handle.wordEl(n);
-        if (le) {
-          le.classList.add('pacer-lead');
-          leadElsRef.current.push(le);
-        }
-      }
+      updateLeadClasses(handle, index);
 
-      // Auto-scroll only when the active word moves to a new line.
+      // Auto-scroll only when the active word moves to a new line. Pacer-driven
+      // only — never reached from onRangeChange, so a manual scroll never fights
+      // this re-center.
       const firstPlacement = lineTopRef.current === null;
       if (firstPlacement || Math.abs(top - lineTopRef.current!) > LINE_EPSILON) {
         scrollWordToBand(scroll, el, !firstPlacement);
       }
       lineTopRef.current = top;
     },
-    [],
+    [updateLeadClasses],
   );
 
-  // Re-apply lead classes after the virtualizer mounts a new span set (scroll).
-  // apply() and pacer.indexRef are both stable for the component's lifetime, so
-  // this callback never changes identity — Reader's memo is never broken by it.
+  // Re-apply lead classes to whatever the virtualizer currently has mounted,
+  // after it mounts a new span set (scroll — manual or programmatic). This is
+  // the #17 fix: it must NEVER touch scroll (no scrollWordToBand, no
+  // scrollToWord) so a manual scroll is never fought. Overlay position doesn't
+  // need updating here — it's a plain `.reader-content` child, not part of the
+  // virtual item list, so it survives remounts untouched (see FINDINGS F19).
+  // Stable identity (empty transitive deps) — Reader's memo is never broken.
   const onRangeChange = useCallback(
-    () => apply(pacer.indexRef.current, false),
-    [apply], // eslint-disable-line react-hooks/exhaustive-deps
+    () => {
+      const handle = readerRef.current;
+      if (!handle) return;
+      updateLeadClasses(handle, pacer.indexRef.current);
+    },
+    [updateLeadClasses], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Subscribe to the pacer; reposition the overlay imperatively on each word.

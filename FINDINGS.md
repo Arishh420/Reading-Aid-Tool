@@ -377,6 +377,54 @@ the interaction between virtualizer commit timing, `useLayoutEffect` sequencing,
 the browser's paint pipeline cannot be confirmed headlessly.
 (2026-07-07, fix/highlight-reapply-on-rerender)
 
+### F21 — `onRangeChange` firing on manual scroll fought the user (regression from F19's fix) 🧪📐
+
+F19's fix wired `Reader`'s `useLayoutEffect([items])` to call `onRangeChange`
+whenever the virtualizer's mounted item set changes — but that trigger fires on
+**any** scroll of `.reader-pane`, not just pacer-driven ones. In flowing and
+chunk mode, `onRangeChange` called the *same* `apply()` used by the pacer tick,
+and `apply()` bundled two responsibilities: reapplying `pacer-lead`/`pacer-chunk`
+classes (F19's actual fix) **and** auto-centering the scroll (D24's 40% band,
+plus an off-window `scrollToWord` recovery). So a manual two-finger scroll or
+scrollbar drag — which is exactly what changes the virtualizer's mounted range —
+re-triggered the auto-center and snapped the pane back to `pacer.indexRef.current`.
+This happened identically whether the pacer was playing, paused, or stopped:
+nothing in the chain ever read `pacer.playing` (confirmed by grep — it's read in
+exactly one place, the play/pause button label).
+
+**Fix:** split `apply()`'s two responsibilities in `FlowingHighlight.tsx` and
+`ChunkHighlight.tsx`. `updateLeadClasses`/`updateChunkClasses` do only the
+class-list bookkeeping (no scroll calls) and are now the *entire* body of
+`onRangeChange`. `apply()` keeps the scroll-centering (`scrollWordToBand`,
+`scrollToWord`) but is now reached only from genuinely pacer-driven paths:
+`pacer.subscribe`'s tick callback (also covers `seek`/`restart`, which route
+through the same `commit()` → listener notification), the document-change
+reset effect, the bionic/settings/layoutKey relayout effect, and the resize
+effect. None of those fire from a scroll event, so a manual scroll can no
+longer reach `scrollWordToBand` or `scrollToWord` at all — verified statically
+by grep: both scroll-moving calls appear only inside `apply()`, and
+`onRangeChange`'s body (in both files) calls only the class-update helper.
+
+The overlay-position update (`FlowingHighlight`'s gliding box) was dropped from
+the class-only path entirely, not just gated — per F19, the overlay is a plain
+`.reader-content` child outside the virtual item list, so it's already immune
+to virtualizer remounts and never needed re-positioning on `onRangeChange`.
+
+*What headless check proved:* the index-selection logic shared between
+`apply()` and the class-only helpers (`firstWordlikeFrom` walk for lead words /
+chunk membership) produces identical, idempotent results across repeated calls
+at the same index — run against a synthetic word list with mixed
+wordlike/non-wordlike tokens and end-of-list truncation. This is the invariant
+the split depends on: both callers must agree on which spans get the class.
+
+*What requires browser testing:* whether a real two-finger scroll / scrollbar
+drag no longer snaps back (playing and paused, both modes); whether the #17
+behavior (lead/chunk classes surviving a scroll-away-and-back) still holds now
+that the class path is decoupled from the scroll path; whether click-to-seek
+and arrow-key seek still recenter once. See the browser test procedure in the
+PR description / issue thread.
+(2026-07-08, fix/reader-manual-scroll)
+
 ---
 
 ## Change log
