@@ -291,6 +291,18 @@ line-snapped offset) with `Animated`, not a page swap.
   (`closest('[data-word-id]')`), not a closure per word.
 - **Auto-scroll** (`scrollHelpers.ts`): keep the active line in a band ~40% from
   the top; scroll only on line change to avoid per-word jitter.
+- **`onRangeChange` (re-mount notification) never scrolls.** `Reader` fires
+  `onRangeChange` whenever the virtualizer mounts a new span set — which
+  happens on *any* scroll of the pane, manual or programmatic, since the pane
+  is also the virtualizer's scroll element. Flowing/Chunk modes must wire this
+  callback to a class-only helper (`updateLeadClasses`/`updateChunkClasses`)
+  that never calls `scrollWordToBand`/`scrollToWord`. Scroll-centering is
+  reached only from genuinely pacer-driven paths — the tick subscription
+  (covers seek/restart), document-change, relayout, and resize effects — never
+  from a mounted-range change alone. Violating this (as D25's original #17 fix
+  did) makes manual scrolling on the pane impossible: every scroll re-triggers
+  the auto-center and snaps back to the pacer's current word, regardless of
+  play/pause state. See DECISIONS.md D77, FINDINGS.md F21.
 
 **Web-coupled.** This whole module reimplements in RN (FlatList / RecyclerListView
 + `onLayout` measurement + `Animated` overlay). The *contract* it exposes
