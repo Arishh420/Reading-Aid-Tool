@@ -598,3 +598,55 @@ button:hover {
   text-decoration-thickness: 0.09em;
   text-underline-offset: 0.16em;
 }
+
+/* Resume-prompt interstitial — shown instead of the reader while the user
+   decides whether to resume or start over. Sits inside .app-intro so it
+   inherits the same centered, max-width column. */
+.resume-prompt {
+  /* inherits .app-intro layout */
+}
+
+.resume-card {
+  margin-top: 1.5rem;
+  padding: 2rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.resume-book-title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  font-size: 1.1rem;
+  word-break: break-word;
+}
+
+.resume-message {
+  margin: 0 0 1.25rem;
+  font-size: 1.05rem;
+}
+
+.resume-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.resume-history {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.resume-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}

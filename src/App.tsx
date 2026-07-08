@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { Document } from './model/types';
 import { flattenWords } from './model/tokenize';
 import { FileInput } from './ui/FileInput';
+import { ResumePrompt } from './ui/ResumePrompt';
 import {
   DEFAULT_BIONIC,
   DEFAULT_DISPLAY,
@@ -26,6 +27,10 @@ import {
   DEFAULT_CHUNK,
   type ChunkSettings,
 } from './pacer/modes/ChunkHighlight';
+import { loadBookRecord, saveReadingPosition, type BookRecord } from './storage/readingPosition';
+
+/** App phases — drives what is rendered in the main area. */
+type Phase = 'idle' | 'resume-prompt' | 'reading';
 
 /**
  * Perf-hardened shell: a responsive full-height (100dvh) column. The reader is
@@ -33,7 +38,10 @@ import {
  * the toolbar and pacer controls sit pinned above it.
  */
 export default function App() {
+  const [phase, setPhase] = useState<Phase>('idle');
   const [doc, setDoc] = useState<Document | null>(null);
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  const [resumeRecord, setResumeRecord] = useState<BookRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bionic, setBionic] = useState<BionicSettings>(DEFAULT_BIONIC);
   const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
@@ -59,7 +67,7 @@ export default function App() {
 
   // Keyboard transport / seeking (M7). Ignored while typing into a control.
   useEffect(() => {
-    if (!doc) return;
+    if (phase !== 'reading') return;
     const onKey = (e: KeyboardEvent) => {
       // Let focused controls handle their own keys (avoids double-firing Space
       // on a focused button, or hijacking arrows on a slider/select).
@@ -89,16 +97,91 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doc, pacer, words]);
+  }, [phase, pacer, words]);
 
-  function handleLoad(loaded: Document) {
+  // Position persistence: save on a 30-second interval, on visibility change,
+  // and on pagehide (more reliable than beforeunload). Only active while reading.
+  //
+  // latest is always saved regardless of movement (it is the resume bookmark).
+  // The >2 % history-gate is enforced inside saveReadingPosition, not here.
+  useEffect(() => {
+    if (phase !== 'reading' || !doc || !fingerprint) return;
+
+    const save = () => {
+      const wordIndex = pacer.indexRef.current;
+      // Don't record a 0-position on initial load — wait until the user has
+      // actually moved past the first word.
+      if (wordIndex === 0) return;
+      saveReadingPosition(fingerprint, doc.title ?? 'Untitled', wordIndex, words.length);
+    };
+
+    const intervalId = setInterval(save, 30_000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') save();
+    };
+    const onPageHide = () => save();
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [phase, doc, fingerprint, words, pacer]);
+
+  function handleLoad(loaded: Document, fp: string) {
     if (loaded.blocks.length === 0) {
       setDoc(null);
+      setFingerprint(null);
       setError('No readable text was found in this file.');
       return;
     }
     setError(null);
+
+    const record = loadBookRecord(fp);
     setDoc(loaded);
+    setFingerprint(fp);
+
+    // Only offer resume when there is a saved position past the very beginning.
+    if (record && record.latest.wordIndex > 0) {
+      setResumeRecord(record);
+      setPhase('resume-prompt');
+    } else {
+      setResumeRecord(null);
+      setPhase('reading');
+    }
+  }
+
+  // When the user chooses Resume from the interstitial, the pacer has already
+  // been reset to 0 (that happened when doc/words changed in handleLoad). We
+  // can seek directly — no deferred ref needed.
+  function handleResume(wordIndex: number) {
+    // Guard against a stale record whose index exceeds the current word count.
+    const safe = wordIndex < words.length ? wordIndex : 0;
+    pacer.seek(safe);
+    setPhase('reading');
+  }
+
+  function handleStartOver() {
+    // Pacer is already at 0 from the usePacer reset. History is preserved.
+    setPhase('reading');
+  }
+
+  function handleLoadAnother() {
+    // Save position before leaving the reader (mirroring the pagehide save).
+    if (phase === 'reading' && fingerprint && doc) {
+      const wordIndex = pacer.indexRef.current;
+      if (wordIndex > 0) {
+        saveReadingPosition(fingerprint, doc.title ?? 'Untitled', wordIndex, words.length);
+      }
+    }
+    setDoc(null);
+    setFingerprint(null);
+    setResumeRecord(null);
+    setPhase('idle');
   }
 
   // Reader typography as CSS variables (M7); the laid-out reader reads these.
@@ -110,7 +193,7 @@ export default function App() {
 
   return (
     <main className="app-shell" style={shellStyle}>
-      {!doc && (
+      {phase === 'idle' && (
         <div className="app-intro">
           <header className="app-header">
             <h1>Reading Aid Tool</h1>
@@ -127,7 +210,17 @@ export default function App() {
         </div>
       )}
 
-      {doc && (
+      {phase === 'resume-prompt' && doc && resumeRecord && (
+        <div className="app-intro">
+          <ResumePrompt
+            record={resumeRecord}
+            onResume={handleResume}
+            onStartOver={handleStartOver}
+          />
+        </div>
+      )}
+
+      {phase === 'reading' && doc && (
         <>
           <div className="app-top">
             <div className="reader-toolbar">
@@ -135,7 +228,7 @@ export default function App() {
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => setDoc(null)}
+                  onClick={handleLoadAnother}
                 >
                   ← Load another
                 </button>
