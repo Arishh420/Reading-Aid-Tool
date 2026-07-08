@@ -387,3 +387,27 @@ the browser's paint pipeline cannot be confirmed headlessly.
   "Post-V1 techniques" block (F12–F16). IDs are assigned chronologically, not by
   file position; check the highest existing number before adding one so an
   F12-style collision doesn't recur.
+
+### F20 — Reading-position persistence: headless-verified invariants ✅
+
+Ten Node.js checks in `src/storage/headless-test.mjs` (run `node src/storage/headless-test.mjs`) confirmed all of the following:
+
+1. **History caps at 5, oldest dropped.** The `[snapshot, ...history].slice(0, 5)` pattern enforces the cap exactly.
+2. **>2 % gate suppresses redundant history entries.** A save at wordIndex 1 (0.01 % into a 10 000-word book) does not append a new history entry when the last history percent is 0 %.
+3. **`latest` is always updated regardless of the gate.** Moving 0.5 % (under gate) updates `latest.wordIndex` but does not grow `history`. The invariant that `latest` is never stale is enforced structurally, not by convention.
+4. **Position round-trips through JSON serialisation.** `wordIndex`, `percent`, `savedAt`, `fingerprint`, `wordCount` all survive `JSON.stringify` → `JSON.parse` with exact equality.
+5. **Useful-history filter (>5 % from latest).** Of four history entries at offsets 6 %, 2 %, 40 %, 60 % from `latest`, exactly three pass the UI filter.
+6. **Same content → same fingerprint (deterministic)** — checked with both small (<96 KB) and large (200 KB, sampled) inputs.
+7. **Different content → different fingerprint.**
+8. **Large-file sampling is deterministic** — a 200 KB buffer with a non-trivial pattern produces the same hex twice.
+9. **Large files differing only in the middle region produce different fingerprints** — the mid-sample captures the change.
+10. **History is stored newest-first** — `history[0].savedAt > history[1].savedAt` after three saves >2 % apart.
+
+What requires browser testing:
+- `computeFingerprint()` on a real `File` object (`crypto.subtle` is a browser API; the Node test reimplements the hash with `node:crypto` same algorithm).
+- The resume-prompt interstitial rendering, "Resume" and "Start from beginning" button behavior.
+- `pacer.seek(wordIndex)` restoring the correct position across all three modes (flowing/RSVP/chunk).
+- The 30-second periodic save, `visibilitychange → hidden` save, and `pagehide` save actually firing.
+- Rename/move-file recognition: loading a file, renaming it on disk, reloading — same fingerprint → resume prompt appears.
+
+(2026-07-07, feature/reading-position-persistence)

@@ -430,3 +430,78 @@
   sections (D42–D59) were inserted *before* the Documentation-discipline/M6/M7
   sections in the file (parallel to the D33 situation), so a reader hits D42 before
   D33–D41.
+
+## Feature — Reading-position persistence (issue #6)
+
+- **D67 · Sampled SHA-256 fingerprint for book identity, not filename.**
+  Content hash means the same book is recognised after renaming, moving, or
+  re-downloading. Filename + path was rejected (breaks on any file move).
+  Full-file SHA-256 was rejected for large PDFs (~100–300 ms on 50 MB);
+  the sampled strategy hashes the first 32 KB + middle 32 KB + last 32 KB
+  + 8-byte big-endian file size (total input: 96 KB + 8 B), giving
+  imperceptible latency (~2–5 ms via `crypto.subtle`) with negligible
+  collision risk for real books. Threshold between full/sampled: 96 KB.
+
+- **D68 · `readingaid_v1:` localStorage key prefix, not `rat:` or bare keys.**
+  The version marker (`_v1`) lets us detect and migrate old schema in a future
+  version without guessing what format unknown keys contain. `rat:` was
+  rejected as terse and unreadable in DevTools. Issue #3 (presets) will
+  build on the same `storage.ts` wrapper and inherit this prefix.
+
+- **D69 · Two-layer position model: `latest` (always updated) + `history` (gated).**
+  `latest` is the resume bookmark — it must reflect the current position on
+  every save trigger so it is never stale. `history` is a rolling recovery log
+  (max 5 entries, newest first), with a new snapshot appended only when the
+  position has moved >2 % from the previous history entry. The gate applies
+  exclusively to `history`; `latest` is unconditional. Storing `latest`
+  separately from `history` makes the semantics unambiguous.
+
+- **D70 · Pre-reader interstitial screen, not a modal or in-reader banner.**
+  The resume prompt replaces the file-input screen while the user decides.
+  A modal was rejected (blocks/obscures the reader, which is not yet shown).
+  An in-reader banner was rejected because it would momentarily show the
+  reader at position 0 before the seek (a flash of wrong content). The
+  interstitial sidesteps both problems and requires no z-index stacking.
+
+- **D71 · App phase state machine ('idle' | 'resume-prompt' | 'reading').**
+  Replacing the old `!doc` / `doc` boolean with an explicit phase enum makes
+  the three distinct states legible and prevents the reader from rendering
+  during the resume-prompt phase. Alternative (show reader behind a modal)
+  was rejected per D70.
+
+- **D72 · `pacer.seek()` called directly in `handleResume`; no deferred ref needed.**
+  The `usePacer` effect resets the index to 0 when `words` changes. `words`
+  changes when `doc` is set (in `handleLoad`), which happens before the
+  resume-prompt screen is shown. By the time the user can click "Resume",
+  the pacer is already at 0, so a direct `pacer.seek(savedWordIndex)` in
+  the click handler is sufficient. A deferred ref (proposed approach in
+  planning) was found unnecessary and was eliminated.
+
+- **D73 · Save on 30 s interval + `visibilitychange` → hidden + `pagehide`.**
+  The interval caps data loss from a crash to ~30 s. `visibilitychange` covers
+  tab-switching and app backgrounding. `pagehide` is preferred over
+  `beforeunload` because it fires more reliably in modern browsers (especially
+  on iOS). The "← Load another" button also saves before navigating back.
+
+- **D74 · Do not save position 0; wait until the user has moved past word 0.**
+  Saving a 0 position immediately on document load would produce a pointless
+  "Resume at 0%?" prompt on the next load. The save guard `wordIndex === 0 →
+  skip` prevents this while still saving after "Start from beginning" once
+  the user has actually read past the first word. The `latest.wordIndex > 0`
+  check in `handleLoad` mirrors this: a record where latest is still at 0 is
+  treated as unrecognised (no prompt shown).
+
+- **D75 · History entries filtered by >5 % from `latest` for the "Earlier
+  positions" UI; >2 % threshold governs history append.**
+  Two separate thresholds serve two different purposes: the 2 % append gate
+  prevents redundant history snapshots from rapid periodic saves, while the
+  5 % UI filter removes entries that are so close to the resume point that
+  they offer no meaningful recovery value. The "Earlier positions" section
+  is hidden entirely when no useful history exists.
+
+- **D76 · Built-in sample gets a fixed fingerprint `__builtin_sample__`.**
+  `parseMarkdown(SAMPLE_MARKDOWN)` produces no `File` object, so there is
+  nothing to hash. A fixed sentinel string gives the sample persistent
+  position tracking across sessions (a nice-to-have) without special-casing
+  it in storage logic. Alternative (no persistence for the sample) rejected
+  as inconsistent.

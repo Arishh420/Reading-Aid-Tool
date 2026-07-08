@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { parse, parseMarkdown, type Format } from '../parsers';
+import { computeFingerprint, parse, parseMarkdown, type Format } from '../parsers';
 import type { Document } from '../model/types';
 import { SAMPLE_MARKDOWN } from './sample';
 
@@ -10,8 +10,12 @@ import { SAMPLE_MARKDOWN } from './sample';
  * the dropdown mainly disambiguates (e.g. a plain `.txt` treated as Markdown).
  */
 
+// Fixed fingerprint for the built-in sample — same string every load so
+// position history persists across sample sessions.
+const SAMPLE_FINGERPRINT = '__builtin_sample__';
+
 interface FileInputProps {
-  onLoad: (doc: Document) => void;
+  onLoad: (doc: Document, fingerprint: string) => void;
   onError: (message: string) => void;
 }
 
@@ -44,7 +48,12 @@ export function FileInput({ onLoad, onError }: FileInputProps) {
     setFormat(resolved);
     setBusy(true);
     try {
-      onLoad(await parse(file, resolved));
+      // Hash and parse run in parallel — both read the File independently.
+      const [doc, fingerprint] = await Promise.all([
+        parse(file, resolved),
+        computeFingerprint(file),
+      ]);
+      onLoad(doc, fingerprint);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Could not read that file.');
     } finally {
@@ -109,7 +118,7 @@ export function FileInput({ onLoad, onError }: FileInputProps) {
           type="button"
           className="secondary"
           disabled={busy}
-          onClick={() => onLoad(parseMarkdown(SAMPLE_MARKDOWN, 'Sample'))}
+          onClick={() => onLoad(parseMarkdown(SAMPLE_MARKDOWN, 'Sample'), SAMPLE_FINGERPRINT)}
         >
           Load sample
         </button>

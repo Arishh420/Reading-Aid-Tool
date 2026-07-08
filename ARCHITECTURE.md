@@ -315,10 +315,14 @@ JS theme object provided via context.
 ## 11. State & settings — `src/App.tsx`
 
 `App` owns all state: loaded `Document`, bionic settings, theme, WPM, natural
-pauses, mode, per-mode settings, and reader display (font size + line width). It
-builds `words` and `dwell` (memoized per doc), runs `usePacer`, and renders the
-active mode view. **No persistence yet** — localStorage for settings is deferred
-(see DECISIONS D2).
+pauses, mode, per-mode settings, reader display (font size + line width), and the
+current app phase (`idle | resume-prompt | reading`). It builds `words` and `dwell`
+(memoized per doc), runs `usePacer`, and renders the active mode view.
+
+**Phase state machine (issue #6):** a three-state enum drives what is rendered:
+`idle` → file-input screen; `resume-prompt` → resume interstitial (if the file is
+recognised by fingerprint and has a saved position); `reading` → the full reader.
+The pacer is always alive, but its keyboard handler is gated to the `reading` phase.
 
 - **Reader typography (M7):** font size and line width are applied as CSS
   variables (`--reader-font-size`, `--reading-width`) on the app shell; the
@@ -357,6 +361,8 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `pacer/usePacer.ts` | clock: timing, dwell, ≤1/frame clamp, chunk stepping, pub/sub (rAF & React exist in RN) |
 | mode *logic* (lead/chunk index math, `firstWordlikeFrom`) | which words to highlight |
 | theme token *values* | the color sets |
+| `storage/storage.ts` | `storageGet/Set/Remove` wrapper — swap to AsyncStorage / MMKV on RN |
+| `storage/readingPosition.ts` | `BookRecord`/`PositionSnapshot` schema + `saveReadingPosition` / `loadBookRecord` |
 
 ### Web-coupled (reimplement against RN primitives)
 | Module | Web dependency | RN replacement |
@@ -366,10 +372,12 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `pacer/modes/*.tsx` | overlay rects, `scrollTo`, `classList` | `Animated` overlay, measured layout (reuse mode logic) |
 | `pacer/modes/scrollHelpers.ts` | DOM scroll | scroll-to-offset on the list |
 | `pacer/PacerControls.tsx` | range/number inputs | RN `Slider` / `TextInput` |
-| `ui/*` (`FileInput`, `Settings`, `ThemeSelector`) | DOM/CSS | RN views; file picking via a platform module |
+| `ui/*` (`FileInput`, `Settings`, `ThemeSelector`, `ResumePrompt`) | DOM/CSS | RN views; file picking via a platform module |
 | `index.css` + `data-theme` | CSS variables | `StyleSheet` + theme context |
 | `parsers/pdf.ts` | `pdfjs-dist` + worker, `ArrayBuffer` | RN PDF lib (reuse `pdfText.ts`) |
 | `parsers/epub.ts` | `JSZip`, `ArrayBuffer` | RN unzip (reuse `epubStructure.ts`) |
+| `parsers/index.ts` → `computeFingerprint` | `File.slice`, `crypto.subtle` (Web Crypto) | RN: RNFS chunk reads + `react-native-quick-crypto` SHA-256 |
+| `storage/storage.ts` → `storageGet/Set/Remove` | `localStorage` | RN: AsyncStorage / MMKV (same key schema; the `storage/readingPosition.ts` logic is unchanged) |
 
 **Rule of thumb:** if a file imports from `react-dom`, touches the DOM, reads
 `getBoundingClientRect`, or lives in `.css`, it's web-coupled. Everything in
@@ -395,3 +403,12 @@ Markdown parser is portable.
   `safeDecodeHref` before zip lookup; numeric entities guarded against code points
   above U+10FFFF (raw fallback). All in the portable layer (`pdfText.ts`,
   `epubStructure.ts`).
+- **Reading-position persistence** (issue #6, 2026-07-07): sampled SHA-256
+  fingerprint for book identity (`parsers/index.ts`); `storage/storage.ts`
+  (generic `readingaid_v1:` localStorage wrapper, reused by future issue #3
+  presets); `storage/readingPosition.ts` (`BookRecord` + two-layer
+  `latest`/`history` model); `ui/ResumePrompt.tsx` (pre-reader interstitial);
+  `App.tsx` phase machine + periodic/unload saves. Portable core:
+  `readingPosition.ts` logic + schema; web-coupled: `localStorage` calls (swap
+  to AsyncStorage/MMKV in RN) and `File.slice` + `crypto.subtle` hashing (swap
+  to RNFS + react-native-quick-crypto).

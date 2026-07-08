@@ -5,14 +5,13 @@
 > calls/forks in [DECISIONS.md](DECISIONS.md). These three are kept current every
 > milestone (docs are part of "done").
 
-> **Status: V1 COMPLETE (through M7).** All three parsers (Markdown, PDF, EPUB),
-> bionic, the full pacer (flowing / RSVP / chunk) + controls, four themes,
-> punctuation-aware pacing, keyboard transport, reader font-size/line-width
-> controls, and empty/error states are built. This is the handoff point for the
-> React Native port — see [ARCHITECTURE.md](ARCHITECTURE.md) (Porting notes) and
-> [FINDINGS.md](FINDINGS.md). Additions beyond the original spec — punctuation
-> dwell ("Natural pauses"), the RSVP ORP fixed anchor, and the RSVP pause cue —
-> are reflected in the scope below.
+> **Status: V1 COMPLETE + post-V1 features in progress.** All three parsers
+> (Markdown, PDF, EPUB), bionic, the full pacer (flowing / RSVP / chunk) +
+> controls, four themes, punctuation-aware pacing, keyboard transport, reader
+> font-size/line-width controls, and empty/error states are built. Post-V1
+> additions: RSVP context strip (issue #1), reading-position persistence (issue
+> #6). Settings persistence (issue #3) is next. See [ARCHITECTURE.md](ARCHITECTURE.md)
+> (Porting notes) and [FINDINGS.md](FINDINGS.md).
 
 ---
 
@@ -262,7 +261,10 @@ Confirm the plan and the proposed file/module structure **before** implementing 
 Original pre-coding questions, now decided (full reasoning in DECISIONS.md):
 
 - **TypeScript or plain JS?** → **TypeScript** (D1).
-- **Persist position / settings?** → **Settings-only via localStorage, deferred**
-  — not document position (no stable doc identity). Not yet implemented (D2).
+- **Persist position / settings?** → **Reading position: implemented (issue #6).**
+  Per-book position persistence via sampled SHA-256 fingerprint (content identity,
+  not filename) and localStorage (`readingaid_v1:pos:{fingerprint}`). Resume prompt
+  on recognised books; history of up to 5 snapshots. Settings persistence (WPM,
+  bionic, theme) is still deferred (issue #3 / D2) — it will reuse `storage/storage.ts`.
 - **Light/dark theme, or single?** → **Four themes** (Light / Sepia / Dark / Dim),
   Light default, `data-theme` swap (D12).
