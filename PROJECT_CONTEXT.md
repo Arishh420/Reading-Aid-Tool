@@ -10,7 +10,7 @@
 > controls, four themes, punctuation-aware pacing, keyboard transport, reader
 > font-size/line-width controls, and empty/error states are built. Post-V1
 > additions: RSVP context strip (issue #1), reading-position persistence (issue
-> #6). Settings persistence (issue #3) is next. See [ARCHITECTURE.md](ARCHITECTURE.md)
+> #6), presets system (issue #3). See [ARCHITECTURE.md](ARCHITECTURE.md)
 > (Porting notes) and [FINDINGS.md](FINDINGS.md).
 
 ---
@@ -57,6 +57,13 @@ Both can be combined (e.g. bionic rendering *plus* an active pacer).
   + a **pause cue** (a tick that depletes over a punctuation dwell)
 - [x] **RSVP context strip** (issue #1) — dim current-paragraph view under the
   flashing word, toggleable, default on *(merged, PR #23)*
+- [x] **Reading-position persistence** (issue #6) — sampled SHA-256 fingerprint for
+  book identity; resume prompt on reload; 30 s interval + tab-hide saves *(merged)*
+- [x] **Presets system** (issue #3) — named settings profiles (9 built-in presets
+  grouped by mode: flowing / RSVP / chunk / accessibility). User presets fully
+  CRUD-able (save, rename, delete). Atomic apply switches all 13 settings + mode in
+  one batch. Modified indicator when settings drift from the applied preset. All local,
+  no accounts. *(on feature/presets, pre-PR)*
 
 ---
 

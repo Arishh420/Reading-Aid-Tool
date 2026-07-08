@@ -324,7 +324,47 @@ JS theme object provided via context.
 
 ---
 
-## 11. State & settings — `src/App.tsx`
+## 11. Presets system — `src/presets/presets.ts` + `src/ui/PresetsPanel.tsx`
+
+Named profiles that snapshot the full settings bundle and switch in one click.
+
+### Data model
+```typescript
+interface PresetBundle {   // 13 fields — mirrors all App.tsx settings state
+  wpm; naturalPauses; mode; bionic; theme; display; flowing; rsvp; chunk;
+}
+type BuiltinPreset = BasePreset & { builtin: true };        // code-defined
+type UserPreset   = BasePreset & { builtin: false; createdAt: number }; // localStorage
+type Preset = BuiltinPreset | UserPreset;
+```
+
+- **9 built-in presets** grouped by reading mode (flowing / RSVP / chunk / cross-cutting).
+  Code constants in `BUILTIN_PRESETS`; never in storage.
+- **User presets:** CRUD via `storageGet/Set` under key `readingaid_v1:presets`
+  (`{ version: 1, userPresets: UserPreset[] }`).
+
+### Apply is atomic
+`applyPreset(preset)` in `App.tsx` fires all 9 `setState` calls in one event handler;
+React 18 automatic batching produces a single render pass. No intermediate partial state.
+
+### isModified tracking
+`lastAppliedBundle` is a `useRef<PresetBundle | null>`. After `applyPreset` writes the
+ref, `isModified` is a derived render-time boolean from `bundlesEqual(currentBundle,
+lastAppliedBundle.current)` — no "mark modified" callbacks threaded through any existing
+handler. A new setting requires one new line in `bundlesEqual` only.
+
+### PresetsPanel
+Renders as a block in `app-top` (between toolbar and PacerControls). Toggle button
+expands a panel with built-ins grouped by mode; user presets beneath with inline rename
+and delete; "Save current…" creates a new named preset from live state.
+
+**Portable:** `presets.ts` (pure types, CRUD, `bundlesEqual`) — no DOM deps; swap
+`storageGet/Set` to AsyncStorage/MMKV in RN.
+**Web-coupled:** `PresetsPanel.tsx` (React UI, DOM refs for autofocus).
+
+---
+
+## 12. State & settings — `src/App.tsx`
 
 `App` owns all state: loaded `Document`, bionic settings, theme, WPM, natural
 pauses, mode, per-mode settings, reader display (font size + line width), and the
@@ -375,6 +415,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | theme token *values* | the color sets |
 | `storage/storage.ts` | `storageGet/Set/Remove` wrapper — swap to AsyncStorage / MMKV on RN |
 | `storage/readingPosition.ts` | `BookRecord`/`PositionSnapshot` schema + `saveReadingPosition` / `loadBookRecord` |
+| `presets/presets.ts` | `PresetBundle` type, built-in definitions, CRUD helpers, `bundlesEqual` |
 
 ### Web-coupled (reimplement against RN primitives)
 | Module | Web dependency | RN replacement |
@@ -384,7 +425,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `pacer/modes/*.tsx` | overlay rects, `scrollTo`, `classList` | `Animated` overlay, measured layout (reuse mode logic) |
 | `pacer/modes/scrollHelpers.ts` | DOM scroll | scroll-to-offset on the list |
 | `pacer/PacerControls.tsx` | range/number inputs | RN `Slider` / `TextInput` |
-| `ui/*` (`FileInput`, `Settings`, `ThemeSelector`, `ResumePrompt`) | DOM/CSS | RN views; file picking via a platform module |
+| `ui/*` (`FileInput`, `Settings`, `ThemeSelector`, `ResumePrompt`, `PresetsPanel`) | DOM/CSS | RN views; file picking via a platform module; presets picker built from native components (reuse `presets.ts` CRUD) |
 | `index.css` + `data-theme` | CSS variables | `StyleSheet` + theme context |
 | `parsers/pdf.ts` | `pdfjs-dist` + worker, `ArrayBuffer` | RN PDF lib (reuse `pdfText.ts`) |
 | `parsers/epub.ts` | `JSZip`, `ArrayBuffer` | RN unzip (reuse `epubStructure.ts`) |
@@ -424,3 +465,10 @@ Markdown parser is portable.
   `readingPosition.ts` logic + schema; web-coupled: `localStorage` calls (swap
   to AsyncStorage/MMKV in RN) and `File.slice` + `crypto.subtle` hashing (swap
   to RNFS + react-native-quick-crypto).
+- **Presets system** (issue #3, 2026-07-08): `presets/presets.ts` (types,
+  9 built-in presets grouped by mode, user CRUD, `bundlesEqual`);
+  `ui/PresetsPanel.tsx` (toggle-expand picker, group sections, rename/delete);
+  `App.tsx` extended with `activePresetId`, `lastAppliedBundle` ref, `applyPreset`
+  (atomic batch), `isModified` derived comparison, user-preset handlers. Storage
+  key `readingaid_v1:presets`. Portable: `presets.ts`; web-coupled:
+  `PresetsPanel.tsx`.
