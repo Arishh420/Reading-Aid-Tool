@@ -98,13 +98,14 @@
 - **D25 · Imperative `classList` for lead/chunk tints.** Re-applied every step
   and whenever the virtualizer's mounted span set changes (scroll). The trigger
   is a `useLayoutEffect([items])` inside `Reader` that calls an `onRangeChange`
-  callback passed by each mode; the callback reads `pacer.indexRef.current`
-  imperatively and calls `apply()` — no React state, no re-render, no flash.
-  Both callback and the effect dep (`items`) are stable across pacer ticks, so
+  callback passed by each mode; the callback is stable across pacer ticks, so
   this fires only on scroll, never per-tick. Cleared before re-adding so
   virtualization can't leak stale classes. The current-word overlay and RSVP
   anchor are separate non-React-styled elements and are unaffected by
-  virtualizer remounts.
+  virtualizer remounts. **Superseded in part by D77** — `onRangeChange` no
+  longer calls the pacer's full `apply()`; it calls a class-only helper that
+  never touches scroll, because "scroll" here includes the user's own manual
+  scroll, not just pacer-driven ones.
 
 ## Refinement A — Punctuation-aware pacing
 
@@ -505,3 +506,39 @@
   position tracking across sessions (a nice-to-have) without special-casing
   it in storage logic. Alternative (no persistence for the sample) rejected
   as inconsistent.
+
+## Bug-fix — manual scroll snapped back to the pacer position (issue #17 regression)
+
+- **D77 · Split `apply()` into a class-only path and a scroll-owning path;
+  `onRangeChange` may only call the former.** D25's fix for #17 wired
+  `onRangeChange` (fires on any virtualizer mounted-item-set change, including
+  a manual scroll) directly to each mode's `apply()` — which, besides
+  reapplying `pacer-lead`/`pacer-chunk` classes, also owned the D24 40%-band
+  auto-scroll and an off-window `scrollToWord` recovery. Because a manual
+  two-finger scroll or scrollbar drag is itself what changes the virtualizer's
+  mounted range, it re-triggered `apply()`'s auto-center, which forced the
+  pane back to `pacer.indexRef.current` — fighting the user identically
+  whether the pacer was playing, paused, or stopped (nothing in the chain
+  ever checked `pacer.playing`).
+
+  Fix: `FlowingHighlight.tsx` and `ChunkHighlight.tsx` each split the class
+  bookkeeping into its own helper (`updateLeadClasses` / `updateChunkClasses`)
+  with zero scroll calls. `onRangeChange` now calls only that helper.
+  `apply()` keeps `scrollWordToBand`/`scrollToWord` but is reached only from
+  pacer-driven paths: the `pacer.subscribe` tick callback (which also covers
+  `seek`/`restart`, since both route through `commit()` → listener
+  notification), the document-change reset effect, the bionic/settings/
+  layoutKey relayout effect, and the resize effect — none of which fire from
+  a scroll event. Alternative rejected: gating the existing auto-scroll on
+  `pacer.playing`. That would still re-center on every manual scroll while
+  playing (the more common case) and wouldn't explain or fix why a paused
+  seek should still recenter once — the real distinction is "did the pacer's
+  position change" (tick/seek/restart/document-change), not "is it currently
+  playing."
+
+  The overlay-position update in `FlowingHighlight` was dropped from the
+  class-only path rather than gated: per F19, the overlay is a plain
+  `.reader-content` child outside the virtual item list, so it already
+  survives virtualizer remounts untouched and never needed repositioning on
+  `onRangeChange`.
+  Fixes #17-regression. See FINDINGS.md F21.

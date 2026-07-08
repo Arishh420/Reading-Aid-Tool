@@ -49,21 +49,12 @@ export function ChunkHighlight({
   const highlightedRef = useRef<HTMLElement[]>([]);
   const lineTopRef = useRef<number | null>(null);
 
-  const apply = useCallback((index: number, animate: boolean, attempt = 0) => {
-    const handle = readerRef.current;
-    if (!handle) return;
-    const { contentEl: content, scrollEl: scroll } = handle;
-    if (!content || !scroll) return;
-
-    const firstEl = handle.wordEl(index);
-    if (!firstEl) {
-      if (attempt > 8) return;
-      handle.scrollToWord(index);
-      requestAnimationFrame(() => apply(index, animate, attempt + 1));
-      return;
-    }
-
-    // Collect this chunk's word-like indices: [index, +chunkSize).
+  // Clear + reassign the `pacer-chunk` classes for this chunk's word-like
+  // indices starting at `index`. Pure DOM class bookkeeping — no scroll side
+  // effects — so it's safe to run from both the pacer-driven apply() and the
+  // scroll-driven onRangeChange path. Indices with no currently-mounted span
+  // are silently skipped (they'll be painted once their block remounts).
+  const updateChunkClasses = useCallback((handle: ReaderHandle, index: number) => {
     const idxs: number[] = [index];
     let i = index;
     for (let c = 1; c < sizeRef.current; c++) {
@@ -82,21 +73,47 @@ export function ChunkHighlight({
         highlightedRef.current.push(el);
       }
     }
+  }, []);
 
-    // Auto-scroll on line change of the chunk's first word.
+  const apply = useCallback((index: number, animate: boolean, attempt = 0) => {
+    const handle = readerRef.current;
+    if (!handle) return;
+    const { contentEl: content, scrollEl: scroll } = handle;
+    if (!content || !scroll) return;
+
+    const firstEl = handle.wordEl(index);
+    if (!firstEl) {
+      // Pacer-driven only (tick/seek/restart) — never reached from onRangeChange.
+      if (attempt > 8) return;
+      handle.scrollToWord(index);
+      requestAnimationFrame(() => apply(index, animate, attempt + 1));
+      return;
+    }
+
+    updateChunkClasses(handle, index);
+
+    // Auto-scroll on line change of the chunk's first word. Pacer-driven only
+    // — never reached from onRangeChange, so a manual scroll never fights this
+    // re-center.
     const top = firstEl.getBoundingClientRect().top - content.getBoundingClientRect().top;
     if (lineTopRef.current === null || Math.abs(top - lineTopRef.current) > LINE_EPSILON) {
       scrollWordToBand(scroll, firstEl, lineTopRef.current !== null);
     }
     lineTopRef.current = top;
-  }, []);
+  }, [updateChunkClasses]);
 
-  // Re-apply chunk classes after the virtualizer mounts a new span set (scroll).
-  // apply() and pacer.indexRef are both stable for the component's lifetime, so
-  // this callback never changes identity — Reader's memo is never broken by it.
+  // Re-apply chunk classes to whatever the virtualizer currently has mounted,
+  // after it mounts a new span set (scroll — manual or programmatic). This is
+  // the #17 fix: it must NEVER touch scroll (no scrollWordToBand, no
+  // scrollToWord) so a manual scroll is never fought. Stable identity (empty
+  // transitive deps) — Reader's memo is never broken by it.
   const onRangeChange = useCallback(
-    () => apply(pacer.indexRef.current, false),
-    [apply], // eslint-disable-line react-hooks/exhaustive-deps
+    () => {
+      const handle = readerRef.current;
+      if (!handle) return;
+      updateChunkClasses(handle, pacer.indexRef.current);
+    },
+    [updateChunkClasses], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer, apply]);
