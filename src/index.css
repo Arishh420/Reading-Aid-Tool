@@ -335,6 +335,185 @@ button:hover {
   margin: 0.5rem 0 0;
 }
 
+/* Presets panel */
+.presets-panel {
+  margin-top: 0.6rem;
+}
+
+.presets-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.presets-toggle-btn {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.presets-toggle-btn.open {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.presets-save-trigger {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.presets-body {
+  margin-top: 0.5rem;
+  padding: 0.85rem 1rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.presets-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.presets-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.presets-group-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* Preset card — secondary chip with active accent state */
+.preset-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.1s ease;
+}
+
+.preset-card:hover:not(.active) {
+  border-color: var(--muted);
+  filter: none;
+}
+
+.preset-card.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* "Modified" inline badge on the active preset */
+.preset-modified {
+  display: inline-block;
+  padding: 0.1rem 0.42rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  line-height: 1.3;
+}
+
+/* User preset section */
+.presets-user-section {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.presets-user-row {
+  flex-wrap: wrap;
+}
+
+/* A user preset card + its action buttons */
+.preset-user-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+/* Inline rename form wrapper */
+.preset-user-editing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Small icon action buttons (rename / delete) */
+.preset-icon-btn {
+  padding: 0.22rem 0.4rem;
+  font-size: 0.8rem;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.preset-icon-btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  filter: none;
+}
+
+/* Save-new preset form */
+.presets-save-row {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.presets-save-input {
+  flex: 1;
+  min-width: 9rem;
+  padding: 0.28rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.presets-save-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.presets-save-row button {
+  font-size: 0.85rem;
+  padding: 0.28rem 0.7rem;
+}
+
 .mode-select {
   font: inherit;
   padding: 0.3rem 0.5rem;

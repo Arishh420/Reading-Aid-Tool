@@ -505,3 +505,65 @@
   position tracking across sessions (a nice-to-have) without special-casing
   it in storage logic. Alternative (no persistence for the sample) rejected
   as inconsistent.
+
+## Feature — Presets system (issue #3)
+
+- **D77 · Built-ins defined in code; user presets in localStorage.**
+  Built-in presets are a constant array (`BUILTIN_PRESETS`) — always available,
+  zero storage cost, no migration risk. User presets live in localStorage under
+  `readingaid_v1:presets` (`{ version: 1, userPresets: UserPreset[] }`) using
+  the existing `storage.ts` wrapper. Alternative (all presets in localStorage)
+  rejected: built-ins would require a seeding step and could be accidentally
+  deleted by the user.
+
+- **D78 · Preset captures the full settings bundle in one atomic object.**
+  `PresetBundle` holds all 13 settings fields. Applying a preset fires all
+  nine `setState` calls in a single event handler — React 18 batches them into
+  one render pass. Alternative (diff and apply only changed fields) rejected:
+  more complex, and a preset is by definition a complete named state, not a
+  partial patch.
+
+- **D79 · `isModified` derived by shallow-comparing `currentBundle` to a
+  `lastAppliedBundle` ref; no extra setter threading.**
+  When `applyPreset` fires it writes `lastAppliedBundle.current = bundle`.
+  `isModified` is computed each render by comparing all 13 fields via
+  `bundlesEqual`. This means no "mark modified" callback needs to be threaded
+  through every existing change handler. Alternative (per-setter modified
+  flag) rejected as brittle — a new setting would require a new flag.
+
+- **D80 · "Save as" never auto-overwrites; always creates a new user preset.**
+  Overwriting would silently destroy the original; the name-input flow makes
+  the save explicit and reversible (the user can still delete later). The new
+  preset is immediately marked as the active preset, clearing the Modified
+  badge.
+
+- **D81 · "context on" dropped from Ironclad.**
+  *User direction.* The RSVP context strip only operates in RSVP mode; in
+  chunk mode it is inert. Shipping a preset that implies a feature it cannot
+  deliver is dishonest. Ironclad's comprehension value comes from slow pace +
+  chunk 3 + high bionic — the description was updated to reflect that.
+  Alternative (store rsvp.showContext:true in the bundle anyway) rejected:
+  adds invisible state that would activate unexpectedly if the user later
+  switches the preset to RSVP mode.
+
+- **D82 · "monospace ORP" and "reduced-motion-friendly" are descriptions, not
+  settings.**
+  RSVP always uses the ORP monospace grid (no toggle); chunk mode is
+  inherently lower-motion than flowing (no glide animation). Neither requires
+  a new setting. The corresponding copy is flavor only; the valid values
+  (`mode: 'rsvp'` / `mode: 'chunk'`) deliver the effect automatically.
+
+- **D83 · Preset groups inferred from `bundle.mode` for user presets.**
+  User presets get their `group` set at creation time from `bundle.mode`
+  (flowing → `'flowing'`, rsvp → `'rsvp'`, chunk → `'chunk'`). The
+  cross-cutting group (`'cross'`) is reserved for built-ins; user presets
+  always land in a mode group. Alternative (let users choose the group)
+  rejected as unnecessary complexity for v1.
+
+- **D84 · PresetsPanel renders as a block in `app-top`, between toolbar and
+  PacerControls.**
+  The panel button and expandable body are co-located in one component.
+  Alternative (button in `reader-toolbar-controls`, panel as a sibling via
+  absolute positioning) rejected: requires overflow management and z-index;
+  the inline block approach is robust, keeps the DOM flat, and reads
+  naturally in the vertical toolbar stack.

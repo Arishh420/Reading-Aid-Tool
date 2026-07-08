@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Document } from './model/types';
 import { flattenWords } from './model/tokenize';
 import { FileInput } from './ui/FileInput';
@@ -11,6 +11,7 @@ import {
   type ReaderDisplay,
 } from './ui/Settings';
 import { ThemeSelector } from './ui/ThemeSelector';
+import { PresetsPanel } from './ui/PresetsPanel';
 import { DEFAULT_THEME, type Theme } from './ui/theme';
 import { firstWordlikeFrom, usePacer } from './pacer/usePacer';
 import { buildDwellMultipliers } from './pacer/dwell';
@@ -28,6 +29,16 @@ import {
   type ChunkSettings,
 } from './pacer/modes/ChunkHighlight';
 import { loadBookRecord, saveReadingPosition, type BookRecord } from './storage/readingPosition';
+import {
+  bundlesEqual,
+  createUserPreset,
+  deleteUserPreset,
+  loadUserPresets,
+  saveUserPreset,
+  type Preset,
+  type PresetBundle,
+  type UserPreset,
+} from './presets/presets';
 
 /** App phases — drives what is rendered in the main area. */
 type Phase = 'idle' | 'resume-prompt' | 'reading';
@@ -52,6 +63,60 @@ export default function App() {
   const [rsvp, setRsvp] = useState<RsvpSettings>(DEFAULT_RSVP);
   const [chunk, setChunk] = useState<ChunkSettings>(DEFAULT_CHUNK);
   const [display, setDisplay] = useState<ReaderDisplay>(DEFAULT_DISPLAY);
+
+  // Presets
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [userPresets, setUserPresets] = useState<UserPreset[]>(() => loadUserPresets());
+  const lastAppliedBundle = useRef<PresetBundle | null>(null);
+
+  const currentBundle: PresetBundle = {
+    wpm, naturalPauses, mode, bionic, theme, display, flowing, rsvp, chunk,
+  };
+  const isModified =
+    activePresetId !== null &&
+    lastAppliedBundle.current !== null &&
+    !bundlesEqual(currentBundle, lastAppliedBundle.current);
+
+  function applyPreset(preset: Preset) {
+    const bundle = preset.bundle;
+    setWpm(bundle.wpm);
+    setNaturalPauses(bundle.naturalPauses);
+    setMode(bundle.mode);
+    setBionic(bundle.bionic);
+    setTheme(bundle.theme);
+    setDisplay(bundle.display);
+    setFlowing(bundle.flowing);
+    setRsvp(bundle.rsvp);
+    setChunk(bundle.chunk);
+    setActivePresetId(preset.id);
+    lastAppliedBundle.current = bundle;
+  }
+
+  function handleSaveNewPreset(name: string) {
+    const preset = createUserPreset(name, currentBundle);
+    saveUserPreset(preset);
+    setUserPresets((prev) => [...prev, preset]);
+    setActivePresetId(preset.id);
+    lastAppliedBundle.current = currentBundle;
+  }
+
+  function handleRenamePreset(id: string, name: string) {
+    setUserPresets((prev) => {
+      const next = prev.map((p) => (p.id === id ? { ...p, name } : p));
+      const changed = next.find((p) => p.id === id);
+      if (changed) saveUserPreset(changed);
+      return next;
+    });
+  }
+
+  function handleDeleteUserPreset(id: string) {
+    deleteUserPreset(id);
+    setUserPresets((prev) => prev.filter((p) => p.id !== id));
+    if (activePresetId === id) {
+      setActivePresetId(null);
+      lastAppliedBundle.current = null;
+    }
+  }
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -248,6 +313,17 @@ export default function App() {
                 <ThemeSelector theme={theme} onThemeChange={setTheme} />
               </div>
             </div>
+
+            <PresetsPanel
+              userPresets={userPresets}
+              activePresetId={activePresetId}
+              isModified={isModified}
+              currentBundle={currentBundle}
+              onApply={applyPreset}
+              onSaveNew={handleSaveNewPreset}
+              onRename={handleRenamePreset}
+              onDelete={handleDeleteUserPreset}
+            />
 
             <PacerControls
               pacer={pacer}

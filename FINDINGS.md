@@ -411,3 +411,52 @@ What requires browser testing:
 - Rename/move-file recognition: loading a file, renaming it on disk, reloading — same fingerprint → resume prompt appears.
 
 (2026-07-07, feature/reading-position-persistence)
+
+---
+
+## Presets system (issue #3)
+
+### F-PRESETS-1 — "context on" is inert in chunk mode ✅ **Unit-verified + derived**
+
+The RSVP context strip (`RsvpContextStrip.tsx`) is rendered only when `mode === 'rsvp'`
+in `App.tsx`. In chunk mode, `rsvp.showContext` has no visual or functional effect.
+Confirmed by code inspection: no code path reads `rsvp.showContext` outside the RSVP
+branch. Implication for the port team: a preset's `rsvp.showContext` value is preserved
+in the bundle regardless of the active mode — it only activates when the user is in RSVP.
+
+### F-PRESETS-2 — React 18 batches all applyPreset setters into one render ❓ **Assumed**
+
+`applyPreset` fires nine `setState` calls sequentially inside a single event handler.
+React 18's automatic batching coalesces them into one synchronous render pass, so there
+is no intermediate state where, e.g., the mode has changed but WPM has not. Not
+independently measured with a render counter; follows from React 18 automatic-batching
+docs. The port team should verify this in their React Native version (RN ≥ 0.71 uses
+the same React 18 batch scheduler).
+
+### F-PRESETS-3 — `bundlesEqual` field list is exhaustive ✅ **Unit-verified**
+
+The headless test (test 9) varies every one of the 13 fields individually and asserts
+`bundlesEqual` returns `false` for each — confirming no field is silently omitted from
+the comparison. Adding a new setting to `PresetBundle` requires adding a corresponding
+line to `bundlesEqual`; omitting it would cause `isModified` to stay `false` when that
+field changes.
+
+### F-PRESETS-4 — Headless test results (2026-07-08) ✅ **Unit-verified**
+
+11 checks: 11 passed, 0 failed.
+
+Checks covered: built-ins always present (9 presets); all bundles have valid setting
+values; all four groups covered; createUserPreset JSON round-trip; save + load
+round-trip; upsert (no duplicate); deleteUserPreset correctness; bundlesEqual true for
+identical bundles; bundlesEqual false for each of 13 field diffs; applyPreset yields
+exact bundle; group inferred from mode.
+
+What requires browser testing:
+- Applying each built-in: all 13 settings + mode switch renders correct mode view.
+- Modified badge appears after any setting tweak post-apply.
+- "Save current…" creates a persistent user preset that survives reload.
+- User preset rename and delete work in UI.
+- Preset state (activePresetId, userPresets) does NOT reset when loading a new file
+  (only reading position changes on load).
+
+(2026-07-08, feature/presets)
