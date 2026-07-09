@@ -10,6 +10,8 @@
  *    misread as an ordered-list marker and must not split the paragraph.
  *  - #41 regression check: a genuine ordered/bullet list still parses into
  *    one paragraph block per item, with the marker stripped.
+ *  - #42: stripInline must not corrupt literal underscores, spaced asterisks,
+ *    or escaped punctuation, while still stripping genuine emphasis markup.
  */
 
 import assert from 'node:assert/strict';
@@ -97,6 +99,62 @@ check(
   '#41: a list that legitimately starts at a number other than 1 (not interrupting a paragraph) still parses as a list',
   blockTexts(parseMarkdown('5. Fifth\n6. Sixth')),
   ['Fifth', 'Sixth']
+);
+
+// ─── Issue #42: stripInline literal-character corruption ──────────────────
+
+check(
+  '#42a: intraword underscores are not treated as emphasis',
+  blockTexts(parseMarkdown('Use the snake_case_name variable.')),
+  ['Use the snake_case_name variable.']
+);
+
+check(
+  '#42b: whitespace-adjacent asterisks are not treated as emphasis',
+  blockTexts(parseMarkdown('Compute 3 * 4 * 5 = 60')),
+  ['Compute 3 * 4 * 5 = 60']
+);
+
+check(
+  '#42c: escapes are processed before emphasis regexes (literal asterisks survive, backslashes removed)',
+  blockTexts(parseMarkdown('\\*not emphasis\\*')),
+  ['*not emphasis*']
+);
+
+check(
+  '#42c-2: mixed literal underscores and escaped asterisks in one paragraph',
+  blockTexts(parseMarkdown('The file_name\\_v2 has 3 \\* 4 escaped.')),
+  ['The file_name_v2 has 3 * 4 escaped.']
+);
+
+check(
+  '#42 regression: genuine bold markup (asterisk) still strips correctly',
+  blockTexts(parseMarkdown('This is **bold** text.')),
+  ['This is bold text.']
+);
+
+check(
+  '#42 regression: genuine italic markup (asterisk) still strips correctly',
+  blockTexts(parseMarkdown('This is *italic* text.')),
+  ['This is italic text.']
+);
+
+check(
+  '#42 regression: genuine italic markup (underscore) still strips correctly',
+  blockTexts(parseMarkdown('This is _italic_ text.')),
+  ['This is italic text.']
+);
+
+check(
+  '#42 regression: genuine bold markup (underscore) still strips correctly',
+  blockTexts(parseMarkdown('This is __bold__ text.')),
+  ['This is bold text.']
+);
+
+check(
+  '#42 regression: mixed bold + italic in one sentence still strips correctly',
+  blockTexts(parseMarkdown('A **bold** word and an *italic* word.')),
+  ['A bold word and an italic word.']
 );
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

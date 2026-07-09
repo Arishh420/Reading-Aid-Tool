@@ -55,17 +55,54 @@ function interruptsParagraph(line: string): boolean {
   return ordered !== null && Number(ordered[1]) === 1;
 }
 
+// Underscore-based emphasis (both `_.._` and `__..__`) forbids intraword use
+// (CommonMark): a word character immediately outside either delimiter
+// disqualifies it, so "snake_case_name" is left untouched rather than
+// mangled into "snakecasename".
+const BOLD_UNDERSCORE = /(?<!\w)__(.+?)__(?!\w)/g;
+const ITALIC_UNDERSCORE = /(?<!\w)_(.+?)_(?!\w)/g;
+
+// Asterisk-based emphasis forbids whitespace immediately inside the
+// delimiters (CommonMark's flanking-delimiter-run rule): the character right
+// after the opening delimiter and right before the closing one must be
+// non-whitespace, so "3 * 4 * 5" (space-padded on both sides) is left
+// untouched rather than stripped to "3 4 5".
+const BOLD_ASTERISK = /\*\*(?!\s)(.+?)(?<!\s)\*\*/g;
+const ITALIC_ASTERISK = /\*(?!\s)(.+?)(?<!\s)\*/g;
+
+const ESCAPE = /\\([\\`*_{}[\]()#+\-.!>~])/g;
+
+// A NUL-delimited index can't collide with legitimate prose (unlike, say, a
+// bare space-digit-space token, which issue #42b's own "3 * 4 * 5" case would
+// have falsely matched — that text contains standalone digits surrounded by
+// spaces). U+0000 cannot occur in real Markdown source.
+const NUL = String.fromCharCode(0);
+const PLACEHOLDER = new RegExp(`${NUL}(\\d+)${NUL}`, 'g');
+
 /** Strip inline Markdown markup, leaving plain text. */
 function stripInline(s: string): string {
-  return s
+  // Resolve escapes FIRST, into placeholders the emphasis/link/code regexes
+  // below can't mistake for real markup — otherwise "\*not emphasis\*" is
+  // unescaped last, after the italic regex has already consumed the literal
+  // "\*" pair as if it were a real delimiter (issue #42c).
+  const escaped: string[] = [];
+  const withPlaceholders = s.replace(ESCAPE, (_match, ch: string) => {
+    escaped.push(ch);
+    return `${NUL}${escaped.length - 1}${NUL}`;
+  });
+
+  const stripped = withPlaceholders
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images -> alt text
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links -> link text
     .replace(/`([^`]+)`/g, '$1') // inline code
-    .replace(/(\*\*|__)(.*?)\1/g, '$2') // bold
-    .replace(/(\*|_)(.*?)\1/g, '$2') // italic
-    .replace(/~~(.*?)~~/g, '$2') // strikethrough
-    .replace(/\\([\\`*_{}[\]()#+\-.!>~])/g, '$1') // escaped punctuation
+    .replace(BOLD_UNDERSCORE, '$1') // bold (__x__)
+    .replace(BOLD_ASTERISK, '$1') // bold (**x**)
+    .replace(ITALIC_UNDERSCORE, '$1') // italic (_x_)
+    .replace(ITALIC_ASTERISK, '$1') // italic (*x*)
+    .replace(/~~(.*?)~~/g, '$1') // strikethrough
     .trim();
+
+  return stripped.replace(PLACEHOLDER, (_match, idx: string) => escaped[Number(idx)]);
 }
 
 /** Split raw Markdown source into ordered raw blocks. */
