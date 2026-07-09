@@ -24,8 +24,36 @@ interface RawBlock {
 const ATX_HEADING = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const FENCE = /^\s*(```|~~~)/;
 const BLOCKQUOTE = /^\s*>\s?/;
-const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/;
+const BULLET_ITEM = /^\s*[-*+]\s+(.*)$/;
+const ORDERED_ITEM = /^\s*(\d+)[.)]\s+(.*)$/;
 const HR = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
+
+/** Matches a bullet OR ordered list-item line; returns its text with the marker stripped. */
+function matchListItem(line: string): string | null {
+  const bullet = line.match(BULLET_ITEM);
+  if (bullet) return bullet[1];
+  const ordered = line.match(ORDERED_ITEM);
+  if (ordered) return ordered[2];
+  return null;
+}
+
+function isListItem(line: string): boolean {
+  return matchListItem(line) !== null;
+}
+
+/**
+ * CommonMark: an ordered-list marker only interrupts an in-progress paragraph
+ * when its start number is 1 (bullets can always interrupt). Without this, a
+ * hard-wrapped sentence-initial number (e.g. "1945.") reads as a new list and
+ * its text is discarded as a marker. Continuing an *already-started* list
+ * (the loop at the LIST_ITEM dispatch site below) is unaffected — any number
+ * there is a continuation, not an interruption.
+ */
+function interruptsParagraph(line: string): boolean {
+  if (BULLET_ITEM.test(line)) return true;
+  const ordered = line.match(ORDERED_ITEM);
+  return ordered !== null && Number(ordered[1]) === 1;
+}
 
 /** Strip inline Markdown markup, leaving plain text. */
 function stripInline(s: string): string {
@@ -93,11 +121,11 @@ function blockify(source: string): RawBlock[] {
     }
 
     // List — each item becomes its own paragraph (v1 has no list block type).
-    if (LIST_ITEM.test(line)) {
+    if (isListItem(line)) {
       while (i < lines.length) {
-        const item = lines[i].match(LIST_ITEM);
-        if (!item) break;
-        flushParagraph([item[1]]);
+        const itemText = matchListItem(lines[i]);
+        if (itemText === null) break;
+        flushParagraph([itemText]);
         i++;
       }
       continue;
@@ -124,7 +152,7 @@ function blockify(source: string): RawBlock[] {
         FENCE.test(l) ||
         HR.test(l) ||
         ATX_HEADING.test(l) ||
-        LIST_ITEM.test(l) ||
+        interruptsParagraph(l) ||
         BLOCKQUOTE.test(l)
       ) {
         break;
