@@ -24,20 +24,85 @@ interface RawBlock {
 const ATX_HEADING = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const FENCE = /^\s*(```|~~~)/;
 const BLOCKQUOTE = /^\s*>\s?/;
-const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/;
+const BULLET_ITEM = /^\s*[-*+]\s+(.*)$/;
+const ORDERED_ITEM = /^\s*(\d+)[.)]\s+(.*)$/;
 const HR = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
+
+/** Matches a bullet OR ordered list-item line; returns its text with the marker stripped. */
+function matchListItem(line: string): string | null {
+  const bullet = line.match(BULLET_ITEM);
+  if (bullet) return bullet[1];
+  const ordered = line.match(ORDERED_ITEM);
+  if (ordered) return ordered[2];
+  return null;
+}
+
+function isListItem(line: string): boolean {
+  return matchListItem(line) !== null;
+}
+
+/**
+ * CommonMark: an ordered-list marker only interrupts an in-progress paragraph
+ * when its start number is 1 (bullets can always interrupt). Without this, a
+ * hard-wrapped sentence-initial number (e.g. "1945.") reads as a new list and
+ * its text is discarded as a marker. Continuing an *already-started* list
+ * (the loop at the LIST_ITEM dispatch site below) is unaffected — any number
+ * there is a continuation, not an interruption.
+ */
+function interruptsParagraph(line: string): boolean {
+  if (BULLET_ITEM.test(line)) return true;
+  const ordered = line.match(ORDERED_ITEM);
+  return ordered !== null && Number(ordered[1]) === 1;
+}
+
+// Underscore-based emphasis (both `_.._` and `__..__`) forbids intraword use
+// (CommonMark): a word character immediately outside either delimiter
+// disqualifies it, so "snake_case_name" is left untouched rather than
+// mangled into "snakecasename".
+const BOLD_UNDERSCORE = /(?<!\w)__(.+?)__(?!\w)/g;
+const ITALIC_UNDERSCORE = /(?<!\w)_(.+?)_(?!\w)/g;
+
+// Asterisk-based emphasis forbids whitespace immediately inside the
+// delimiters (CommonMark's flanking-delimiter-run rule): the character right
+// after the opening delimiter and right before the closing one must be
+// non-whitespace, so "3 * 4 * 5" (space-padded on both sides) is left
+// untouched rather than stripped to "3 4 5".
+const BOLD_ASTERISK = /\*\*(?!\s)(.+?)(?<!\s)\*\*/g;
+const ITALIC_ASTERISK = /\*(?!\s)(.+?)(?<!\s)\*/g;
+
+const ESCAPE = /\\([\\`*_{}[\]()#+\-.!>~])/g;
+
+// A NUL-delimited index can't collide with legitimate prose (unlike, say, a
+// bare space-digit-space token, which issue #42b's own "3 * 4 * 5" case would
+// have falsely matched — that text contains standalone digits surrounded by
+// spaces). U+0000 cannot occur in real Markdown source.
+const NUL = String.fromCharCode(0);
+const PLACEHOLDER = new RegExp(`${NUL}(\\d+)${NUL}`, 'g');
 
 /** Strip inline Markdown markup, leaving plain text. */
 function stripInline(s: string): string {
-  return s
+  // Resolve escapes FIRST, into placeholders the emphasis/link/code regexes
+  // below can't mistake for real markup — otherwise "\*not emphasis\*" is
+  // unescaped last, after the italic regex has already consumed the literal
+  // "\*" pair as if it were a real delimiter (issue #42c).
+  const escaped: string[] = [];
+  const withPlaceholders = s.replace(ESCAPE, (_match, ch: string) => {
+    escaped.push(ch);
+    return `${NUL}${escaped.length - 1}${NUL}`;
+  });
+
+  const stripped = withPlaceholders
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images -> alt text
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links -> link text
     .replace(/`([^`]+)`/g, '$1') // inline code
-    .replace(/(\*\*|__)(.*?)\1/g, '$2') // bold
-    .replace(/(\*|_)(.*?)\1/g, '$2') // italic
-    .replace(/~~(.*?)~~/g, '$2') // strikethrough
-    .replace(/\\([\\`*_{}[\]()#+\-.!>~])/g, '$1') // escaped punctuation
+    .replace(BOLD_UNDERSCORE, '$1') // bold (__x__)
+    .replace(BOLD_ASTERISK, '$1') // bold (**x**)
+    .replace(ITALIC_UNDERSCORE, '$1') // italic (_x_)
+    .replace(ITALIC_ASTERISK, '$1') // italic (*x*)
+    .replace(/~~(.*?)~~/g, '$1') // strikethrough
     .trim();
+
+  return stripped.replace(PLACEHOLDER, (_match, idx: string) => escaped[Number(idx)]);
 }
 
 /** Split raw Markdown source into ordered raw blocks. */
@@ -93,11 +158,11 @@ function blockify(source: string): RawBlock[] {
     }
 
     // List — each item becomes its own paragraph (v1 has no list block type).
-    if (LIST_ITEM.test(line)) {
+    if (isListItem(line)) {
       while (i < lines.length) {
-        const item = lines[i].match(LIST_ITEM);
-        if (!item) break;
-        flushParagraph([item[1]]);
+        const itemText = matchListItem(lines[i]);
+        if (itemText === null) break;
+        flushParagraph([itemText]);
         i++;
       }
       continue;
@@ -124,7 +189,7 @@ function blockify(source: string): RawBlock[] {
         FENCE.test(l) ||
         HR.test(l) ||
         ATX_HEADING.test(l) ||
-        LIST_ITEM.test(l) ||
+        interruptsParagraph(l) ||
         BLOCKQUOTE.test(l)
       ) {
         break;
