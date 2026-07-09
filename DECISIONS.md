@@ -832,6 +832,76 @@ why*, for anyone reading the superseded text.
   floor for very deliberate/accessibility-driven reading, and was the value
   the user suggested as a starting point. `WPM_MAX` (1000) is untouched.
 
+## Bug-fix — Markdown parser corruption (issues #41, #42)
+
+- **D90 · Ordered-list markers only interrupt an in-progress paragraph when
+  the start number is 1 (CommonMark rule); bullets still interrupt
+  unconditionally (issue #41).** *Adversarial-audit finding, not a user
+  repro.* The original `LIST_ITEM` regex (`/^\s*(?:[-*+]|\d+[.)])\s+(.*)$/`)
+  treated any line starting with digits + `.`/`)` as a list-item marker, both
+  at the top-level block dispatch and inside the paragraph-merge loop's break
+  condition. A hard-wrapped sentence-initial number (e.g. a Project
+  Gutenberg-style `.txt` wrapping "...ended in\n1945. Everyone celebrated...")
+  was silently misread as a new ordered list starting at 1945: the paragraph
+  was incorrectly split, and the captured-group extraction (keeping only the
+  text after the marker) deleted "1945." outright, since a real list item's
+  marker text is supposed to be discarded. Fix: split the single regex into
+  `BULLET_ITEM` (unchanged — `[-*+]` always interrupts, matching prior
+  behavior) and `ORDERED_ITEM` (`\d+[.)]`, capturing the number), plus a new
+  `interruptsParagraph(line)` predicate used only by the paragraph-merge
+  loop's break condition — true for any bullet, but for an ordered marker
+  only when `Number(match[1]) === 1`. The top-level dispatch
+  (`isListItem`/`matchListItem`) is deliberately left unrestricted (any
+  ordered number can start a fresh list when not interrupting a paragraph,
+  e.g. a list that legitimately begins at 5), since it's only reached once
+  the paragraph-merge loop has already declined to absorb the line. The
+  existing list-continuation loop (once inside a list) is also unrestricted —
+  continuing items don't need to start at 1, only *starting* one by
+  interrupting a paragraph does.
+  Alternative rejected: requiring a blank line before any list. Simpler, but
+  contradicts existing behavior where a bullet list can interrupt a paragraph
+  with no blank line — correct before this fix and preserved by it.
+- **D91 · `stripInline` resolves backslash-escapes first via NUL-delimited
+  placeholders, and applies CommonMark's emphasis-flanking rules split by
+  delimiter type, instead of one shared lazy-capture regex for both `*` and
+  `_` with escapes unescaped last (issue #42).** *Adversarial-audit finding.*
+  Three corruptions shared one root cause — the bold/italic regexes
+  (`/(\*\*|__)(.*?)\1/g`, `/(\*|_)(.*?)\1/g`) had no flanking restrictions,
+  and escapes were unescaped in the last `.replace()` of the chain, after
+  emphasis had already run:
+  (a) *Intraword underscores* (`snake_case_name` → `snakecasename`): the
+  italic regex matched `_case_` with no check on what surrounds the
+  delimiters. Fix: underscore emphasis (`_x_` and `__x__`) now requires
+  `(?<!\w)` immediately before the opening delimiter and `(?!\w)` immediately
+  after the closing one — CommonMark's no-intraword-underscore-emphasis rule.
+  A word letter on both outer sides disqualifies every underscore in the
+  string as an opener, so `snake_case_name` is left untouched.
+  (b) *Whitespace-adjacent asterisks* (`"3 * 4 * 5"` → `"3 4 5"`): same root
+  cause. Fix: asterisk emphasis (`*x*` and `**x**`) now requires the
+  character immediately after the opening delimiter and immediately before
+  the closing delimiter to be non-whitespace (`(?!\s)`/`(?<!\s)`) —
+  CommonMark's flanking-delimiter-run rule. Every `*` in `"3 * 4 * 5"` is
+  space-padded on both sides, so none qualifies as an opener or closer.
+  (c) *Escape order* (`\*not emphasis\*` → `\not emphasis\`): escapes were
+  unescaped last, after the italic regex had already consumed the literal
+  `\*` pair as if it were real markup, stripped the delimiters, and left the
+  orphaned backslashes. Fix: escapes are resolved first, replacing each `\X`
+  with a `NUL + index + NUL` placeholder (`NUL = String.fromCharCode(0)`)
+  before any other regex runs, so an escaped character is structurally
+  invisible to every subsequent regex (images, links, code, bold, italic,
+  strikethrough) — not just emphasis. Placeholders are restored to their
+  literal characters in one final pass after `.trim()`.
+  A bare space-digit-space placeholder (no NUL) was tried first and rejected
+  mid-implementation: issue #42b's own repro text, `"3 * 4 * 5"`, contains
+  standalone digits surrounded by spaces, which such a placeholder scheme
+  would have falsely matched and corrupted during restoration. U+0000 cannot
+  occur in real Markdown source, so it can't collide with real prose.
+  Alternative rejected for (a)/(b): one shared flanking rule for both
+  delimiter families — CommonMark itself distinguishes intraword-forbidden
+  (`_`) from whitespace-flanking (`*`); collapsing them would either allow
+  `snake*case*name`-style false positives or forbid legitimate mid-word `*`
+  emphasis that `_` correctly permits elsewhere in the spec.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

@@ -607,6 +607,44 @@ changes.
 
 ---
 
+### F24 — Markdown parser corruption (issues #41, #42): both fixes ✅ unit-verified against the real bundled parser
+
+Found by adversarial audit (2026-07-09), not a user repro. Two independent
+corruption mechanisms in `src/parsers/markdown.ts`, fixed as two separate
+commits (D90, D91) and proven against the actual shipped `parseMarkdown` via
+`src/parsers/headless-test.mjs` (esbuild-bundles `markdown.ts` — including its
+imports from `model/tokenize.ts`/`model/types.ts` — and imports the real
+output, same pattern as `pacer/headless-test.mjs`).
+
+**#41 (token deletion):** a hard-wrapped sentence-initial number was
+misread as an ordered-list marker, deleting the number and incorrectly
+splitting the paragraph. Fixed by restricting paragraph-interruption to
+bullets and ordered markers starting at 1 (D90).
+
+**#42 (character mangling within a token):** intraword underscores,
+whitespace-adjacent asterisks, and escape-order were all corrupted by
+`stripInline`'s lack of CommonMark flanking rules and its escape-last
+ordering. Fixed via per-delimiter flanking regexes and NUL-delimited
+escape placeholders resolved first (D91).
+
+*Verified:* ✅ 15/15 headless checks — 6 for #41 (the repro case, a
+paragraph-initial non-1 number, genuine ordered/bullet lists, an ordered list
+correctly interrupting a paragraph at 1, and a list legitimately starting at a
+number other than 1) and 9 for #42 (the three original repro cases, a combined
+literal-underscore + escaped-asterisk case, and regressions for `**bold**`,
+`*italic*`, `_italic_`, `__bold__`, and mixed bold+italic in one sentence). 🧪
+`npm run build` (`tsc -b && vite build`) clean after both commits.
+
+*Not verified — same caveat as every other parser entry in this file (F6/F7):*
+real-world Markdown files (as opposed to the synthetic repro strings above)
+may still combine these constructs in ways not covered by the 15 cases, and
+the fix has not been exercised against an actual `.md`/`.txt` file loaded
+through the browser UI.
+
+(2026-07-09, fix/markdown-parser-corruption)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -619,6 +657,8 @@ changes.
   HUD collapse/RSVP-glide/no-re-wrap/no-double-toggle ❓ pending browser test.
   Revised same day after browser testing confirmed four of the ❓ items were
   real bugs (F22 updated in place; see F23).
+- **F24** added (2026-07-09, issues #41/#42): Markdown parser token-deletion
+  and character-mangling bugs, both fixed and 15/15 headless-verified.
 - **F23** added (2026-07-09, issue #38 QA round): root-caused and fixed the
   four bugs F22 flagged as possible; predicate rewritten (13/13 headless),
   HUD ceilings corrected, disabled-button styling added. Fixes themselves
