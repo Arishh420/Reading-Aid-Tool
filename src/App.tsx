@@ -14,6 +14,7 @@ import { ThemeSelector } from './ui/ThemeSelector';
 import { PresetsPanel } from './ui/PresetsPanel';
 import { DEFAULT_THEME, type Theme } from './ui/theme';
 import { firstWordlikeFrom, usePacer } from './pacer/usePacer';
+import { spaceTogglesFrom } from './pacer/keyboard';
 import { buildDwellMultipliers } from './pacer/dwell';
 import { PacerControls } from './pacer/PacerControls';
 import { ModeSettings, type PacerMode } from './pacer/ModeSettings';
@@ -134,16 +135,26 @@ export default function App() {
   useEffect(() => {
     if (phase !== 'reading') return;
     const onKey = (e: KeyboardEvent) => {
-      // Let focused controls handle their own keys (avoids double-firing Space
-      // on a focused button, or hijacking arrows on a slider/select).
+      // Space is routed separately from the blanket control-yield below (D86,
+      // revised by D89): it toggles the pacer regardless of focus UNLESS the
+      // focused element has a genuine native action of its own — the
+      // Play/Pause button specifically (native click; avoids the D40
+      // double-fire), or real text/checkbox/radio entry. Everything else —
+      // the Mode <select>, the Presets toggle button, Restart, a clicked word
+      // span, <body> — reaches the pacer. See pacer/keyboard.ts.
+      if (e.code === 'Space') {
+        if (!spaceTogglesFrom(e.target as Element | null)) return;
+        e.preventDefault();
+        pacer.toggle();
+        return;
+      }
+      // Let focused controls handle their own keys (avoids hijacking arrows on
+      // a slider/select, or Home inside a text field).
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') {
         return;
       }
-      if (e.code === 'Space') {
-        e.preventDefault();
-        pacer.toggle();
-      } else if (e.key === 'ArrowRight') {
+      if (e.key === 'ArrowRight') {
         e.preventDefault();
         const n = firstWordlikeFrom(words, pacer.indexRef.current + 1);
         if (n !== -1) pacer.seek(n);
@@ -287,7 +298,7 @@ export default function App() {
 
       {phase === 'reading' && doc && (
         <>
-          <div className="app-top">
+          <div className={`app-top${pacer.playing ? ' playing' : ''}`}>
             <div className="reader-toolbar">
               <div className="reader-title-row">
                 <button
@@ -330,6 +341,7 @@ export default function App() {
               count={words.length}
               wpm={wpm}
               onWpmChange={setWpm}
+              compact={pacer.playing}
             />
 
             <ModeSettings

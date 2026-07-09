@@ -10,7 +10,9 @@
 > controls, four themes, punctuation-aware pacing, keyboard transport, reader
 > font-size/line-width controls, and empty/error states are built. Post-V1
 > additions: RSVP context strip (issue #1), reading-position persistence (issue
-> #6), presets system (issue #3). See [ARCHITECTURE.md](ARCHITECTURE.md)
+> #6), presets system (issue #3). **In progress (not yet merged):** minimal
+> reading HUD during playback + space-bar pause-trap fix (issue #38, branch
+> `feature/reading-hud-and-spacebar-fix`). See [ARCHITECTURE.md](ARCHITECTURE.md)
 > (Porting notes) and [FINDINGS.md](FINDINGS.md).
 
 ---
@@ -64,6 +66,21 @@ Both can be combined (e.g. bionic rendering *plus* an active pacer).
   CRUD-able (save, rename, delete). Atomic apply switches all 13 settings + mode in
   one batch. Modified indicator when settings drift from the applied preset. All local,
   no accounts. *(merged, PR #37)*
+- [ ] **Minimal HUD during playback + space-bar pause-trap fix** (issue #38) —
+  while the pacer is playing, `.app-top`'s settings-heavy rows (mode dropdown,
+  bionic/theme/text-size settings, presets panel, keyboard hint) collapse to a
+  minimal HUD (transport, a live WPM number box, read-only progress); full
+  controls return on pause. Space toggles play/pause from any element except
+  the Play/Pause button itself and genuine text/checkbox/radio/file entry —
+  including a WPM/Word/scrubber field (the original trap), a clicked word
+  span, or the Mode dropdown/Presets panel button (previously also wrongly
+  trapped Space; fixed in the same pass, see below). WPM floor lowered to 50.
+  *(in progress, not yet merged — branch `feature/reading-hud-and-spacebar-fix`;
+  a first round of browser testing found 4 real bugs — a CSS clipping
+  regression, two Space-routing gaps, and a pre-existing disabled-button
+  legibility issue — all root-caused and fixed; predicate re-verified
+  headlessly (13/13), build clean; the fixes themselves are pending a second
+  browser-testing round. See FINDINGS F22 (revised)/F23, DECISIONS D89.)*
 
 ---
 

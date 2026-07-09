@@ -122,8 +122,20 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
-button:hover {
+button:hover:not(:disabled) {
   filter: brightness(1.05);
+}
+
+/* Issue #38 bug #4: a disabled button (e.g. Play/Pause at the end of the
+   document — `disabled={pacer.atEnd && !pacer.playing}`, pre-existing
+   usePacer/PacerControls behavior) previously had NO visual difference from
+   an active one (color/background are set unconditionally above, and the
+   browser's default disabled dimming was overridden), so it looked fully
+   clickable while silently doing nothing on click *and* on Space. This makes
+   the state legible; it does not change when disabling happens. */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* File input */
@@ -315,6 +327,51 @@ button:hover {
   min-width: 2.6rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Minimal HUD during playback (issue #38, D87/D88 — ceilings corrected by
+   D89 after browser testing). These rows collapse via max-height/opacity
+   while the pacer plays; only .app-top's HEIGHT shrinks — .reader-pane's
+   width is untouched, so flowing/chunk text never re-wraps and scrollTop is
+   preserved (see ARCHITECTURE §12).
+
+   The RESTING (not-playing) max-height below must never clip real content —
+   that was bug #1 (the theme selector disappeared): 6rem was smaller than
+   Settings + ThemeSelector's actual wrapped height, so overflow:hidden
+   silently cut off whatever didn't fit, even though the pacer wasn't
+   playing. These ceilings are now deliberately oversized (40rem) so
+   min(natural-content-height, ceiling) == natural-content-height for any
+   realistic content — the resting state is visually identical to having no
+   max-height at all. The tradeoff (unchanged from the first pass, restated
+   here because it now matters more): a row much shorter than 40rem will
+   visually snap near the tail of the 220ms collapse transition rather than
+   shrinking proportionally throughout — a known limitation of animating a
+   fixed max-height ceiling instead of a measured one. Safety against
+   clipping was prioritized over transition smoothness; confirm/tune in the
+   browser (FINDINGS F22). kbd-hint is a single short line and safe at a much
+   smaller, tightly-bounded ceiling. */
+.app-top .reader-toolbar-controls,
+.app-top .mode-settings,
+.app-top .presets-panel,
+.app-top .kbd-hint {
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 220ms ease, opacity 160ms ease, margin-top 220ms ease;
+}
+
+.app-top .reader-toolbar-controls { max-height: 40rem; }
+.app-top .mode-settings { max-height: 40rem; }
+.app-top .presets-panel { max-height: 40rem; }
+.app-top .kbd-hint { max-height: 4rem; }
+
+.app-top.playing .reader-toolbar-controls,
+.app-top.playing .mode-settings,
+.app-top.playing .presets-panel,
+.app-top.playing .kbd-hint {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  pointer-events: none;
 }
 
 /* Per-mode settings (formalized in M5) */
