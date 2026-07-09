@@ -1,51 +1,39 @@
 # Working agreement for this repo
 
-This file is standing instruction. Follow it every session without being re-asked.
+Standing instruction. Follow every session without being re-asked.
 
 ## 1. Branch before changing code — always
+Never commit on `main`. Before ANY code change, confirm the branch
+(`git branch --show-current`). If on `main`, STOP and say so — a new change needs
+its own branch off an up-to-date main
+(`git checkout main && git pull && git checkout -b <name>`). If a change doesn't
+fit the current branch's purpose, STOP and flag it — it belongs on its own branch;
+don't pile unrelated work on. Never commit or push without explicit sign-off:
+propose first, I review in the browser. Naming: `feature/<name>`, `fix/<name>`.
 
-Never make code changes on `main`. Before starting ANY code change:
-- Confirm the current branch (`git branch --show-current`).
-- If on `main`, STOP and tell me — a new change needs its own branch off an
-  up-to-date main (`git checkout main && git pull && git checkout -b <name>`).
-- If the change is unrelated to the current branch's purpose, STOP and flag it:
-  it likely belongs on its own branch. Do not pile unrelated work onto a branch.
-- Do not commit or push unless I explicitly say so. Propose first; wait for
-  sign-off; I review in the browser before commit.
-
-Branch naming: `feature/<name>` for new features, `fix/<name>` for bug fixes.
-
-## 2. Docs are part of "done" — never skip them
-
-This codebase is headed for a React Native port, so documentation is
-load-bearing, not optional. A change is NOT complete until the docs reflect it:
-- **DECISIONS.md** — append an entry for every judgment call or resolved design
-  fork (what, why, alternative rejected). Append-only; never rewrite history.
-- **FINDINGS.md** — record anything LEARNED by building/testing (distinct from
-  decisions), tagged with how it was verified: check-unit / build / user-confirmed /
-  derived / assumed. Be honest about the level.
-- **ARCHITECTURE.md** — update when structure, data flow, or the portable-vs-
-  web-layer split changes.
-- **PROJECT_CONTEXT.md** — keep scope current when features are added or changed.
-
-If a change contradicts something the docs record as done, fix the code OR
-correct the doc — the two must never disagree. Flag drift when you find it.
+## 2. Docs are part of "done"
+A change isn't complete until the docs reflect it. Update the relevant one(s);
+each documents its own purpose at its top:
+- **PROJECT_CONTEXT.md** @PROJECT_CONTEXT.md  — scope.
+- **ARCHITECTURE.md** @ARCHITECTURE.md  — structure, data flow, portable-vs-web split.
+- **DECISIONS.md** @DECISIONS.md  — append an entry per judgment call (what / why / alternative
+  rejected). Append-only; never rewrite history — corrections are appended and marked.
+- **FINDINGS.md** @FINDINGS.md  — what was LEARNED by building/testing, tagged with how it was
+  verified (unit / build / user-confirmed / derived / assumed). Be honest.
+If code and a doc disagree, fix one and flag the drift — never leave them at odds.
 
 ## 3. Verify honestly
+Prefer a headless check (esbuild → Node, the repo's ad-hoc pattern) over reasoning
+alone, and show the output. Say plainly what was run vs. assumed; never call
+something verified when it was only reasoned about. `npm run build` must stay clean.
 
-Where practical, prove a change with a headless check (esbuild to node, the
-repo's existing ad-hoc pattern) and show the output. Distinguish what was
-actually run from what is assumed. Never claim something is verified when it
-was only reasoned about. npm run build must stay clean.
+## 4. Two invariants that must never break
+Both cause silent, hard-to-trace corruption (see FINDINGS F1, F16):
+- `Word.id` === flat word index. Parsers must call `reindexWords` last; don't
+  filter blocks after.
+- The document tree must NOT reconcile on the per-pacer-tick path. Highlights move
+  imperatively; re-render only at block/window boundaries.
 
-## 4. Project facts (so a fresh session has context)
-
-- Stack: React + Vite + TypeScript, fully client-side, no backend/API.
-- Core invariant: Word.id === flat word index; the pacer and RSVP context
-  strip both depend on it. Never break it (parsers must call reindexWords
-  last; don't filter blocks after).
-- Perf invariant: the document tree must NOT reconcile on the per-pacer-tick
-  hot path. Highlights move imperatively; re-render only at block/window
-  boundaries.
-- The four docs above + the GitHub issues are the source of truth. Read them
-  if you lack context.
+For everything else — stack, architecture, scope, decision history — read
+PROJECT_CONTEXT.md / ARCHITECTURE.md / DECISIONS.md / FINDINGS.md. Those plus the
+GitHub issues are the source of truth.

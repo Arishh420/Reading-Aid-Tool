@@ -63,7 +63,7 @@ Both can be combined (e.g. bionic rendering *plus* an active pacer).
   grouped by mode: flowing / RSVP / chunk / accessibility). User presets fully
   CRUD-able (save, rename, delete). Atomic apply switches all 13 settings + mode in
   one batch. Modified indicator when settings drift from the applied preset. All local,
-  no accounts. *(on feature/presets, pre-PR)*
+  no accounts. *(merged, PR #37)*
 
 ---
 
@@ -265,13 +265,7 @@ Confirm the plan and the proposed file/module structure **before** implementing 
 
 ## 11. Open Questions — RESOLVED
 
-Original pre-coding questions, now decided (full reasoning in DECISIONS.md):
-
-- **TypeScript or plain JS?** → **TypeScript** (D1).
-- **Persist position / settings?** → **Reading position: implemented (issue #6).**
-  Per-book position persistence via sampled SHA-256 fingerprint (content identity,
-  not filename) and localStorage (`readingaid_v1:pos:{fingerprint}`). Resume prompt
-  on recognised books; history of up to 5 snapshots. Settings persistence (WPM,
-  bionic, theme) is still deferred (issue #3 / D2) — it will reuse `storage/storage.ts`.
-- **Light/dark theme, or single?** → **Four themes** (Light / Sepia / Dark / Dim),
-  Light default, `data-theme` swap (D12).
+The original pre-coding forks are all decided; full reasoning in DECISIONS.md:
+TypeScript over plain JS (D1); persistence (D2 — since extended: reading-position
+is now implemented per issue #6, see D67–D76; settings auto-persistence across
+reloads is still deferred); four themes via a `data-theme` swap (D12).
