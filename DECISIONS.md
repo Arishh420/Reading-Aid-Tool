@@ -20,6 +20,11 @@
   lands, persist global settings (bionic, WPM, mode, theme) but **not** document
   position (no stable doc identity yet). Not implemented through M5 — flagged for
   a later milestone.
+  - *Correction (2026-07-08):* the deferral above was accurate as of M5.
+    Document-position persistence was subsequently implemented in issue #6
+    (see D67–D76), using a content fingerprint for book identity. Settings
+    auto-persistence (WPM/bionic/theme across reloads) remains deferred. Original
+    entry left intact per append-only discipline.
 - **D3 · Hand-built Vite scaffold.** Avoided `npm create vite` boilerplate; built
   the minimal shell directly to keep M1 tightly scoped to project + model +
   tokenizer.
@@ -102,7 +107,7 @@
   this fires only on scroll, never per-tick. Cleared before re-adding so
   virtualization can't leak stale classes. The current-word overlay and RSVP
   anchor are separate non-React-styled elements and are unaffected by
-  virtualizer remounts. **Superseded in part by D77** — `onRangeChange` no
+  virtualizer remounts. **Superseded in part by D85** — `onRangeChange` no
   longer calls the pacer's full `apply()`; it calls a class-only helper that
   never touches scroll, because "scroll" here includes the user's own manual
   scroll, not just pacer-driven ones.
@@ -296,8 +301,6 @@
   layer; this log is append-only; PROJECT_CONTEXT scope stays current. Docs are
   part of "done" for each milestone. (FINDINGS.md was later added to this set in
   the M7 audit.)
-  *(Relocated 2026-06-29 from the end of the file to restore sequence — see
-  Corrections.)*
 
 ## Milestone 6 — PDF + EPUB parsers
 
@@ -418,19 +421,6 @@
   subsumes it. Alternative rejected: calling `pdf.destroy()` — `PDFDocumentProxy`
   has no `.destroy()` method in v6; only `PDFDocumentLoadingTask` does.
   Fixes #15.
-
-## Corrections
-- **2026-06-29:** D33 was originally appended at the end of the file (after M7's
-  D39–D41) under a trailing "Documentation discipline" heading, leaving M6
-  reading D32 → D34. No decision was missing — D33 was merely out of sequence. It
-  has been moved to its correct chronological position (the 2026-06-26
-  documentation-discipline section, which was established before M6) so the log is
-  monotonic D1→D41. This is the one sanctioned reorder; the log remains
-  append-only otherwise. Note: "monotonic D1→D41" describes numeric **assignment**
-  order, not file reading order — the latter now differs because the later Post-V1
-  sections (D42–D59) were inserted *before* the Documentation-discipline/M6/M7
-  sections in the file (parallel to the D33 situation), so a reader hits D42 before
-  D33–D41.
 
 ## Feature — Reading-position persistence (issue #6)
 
@@ -604,3 +594,22 @@
   survives virtualizer remounts untouched and never needed repositioning on
   `onRangeChange`.
   Fixes #17-regression. See FINDINGS.md F21.
+
+## Appendix — Log meta
+
+Bookkeeping about this log's own structure, kept out of the chronological
+entries above so it doesn't interrupt the decision flow.
+
+- **File order ≠ numeric order.** IDs are assigned chronologically, but the file
+  is grouped by milestone/feature, so later-numbered sections (Post-V1 D42–D59,
+  Reading-position D67–D76, Presets D77–D85) can appear before or after
+  lower-numbered milestone sections. Navigate by section heading, not by scrolling
+  for ascending IDs.
+- **D33 relocation (2026-06-29).** D33 was originally appended at the end of the
+  file (after M7's D39–D41) and was moved once to its chronological home in the
+  2026-06-26 documentation-discipline section. This is the single sanctioned
+  reorder; the log is otherwise append-only.
+- **D25 reference correction (2026-07-08).** D25's supersession annotation
+  originally cited "D77"; corrected to **D85**. D77 is the unrelated presets
+  decision — the mechanism D25 describes (`onRangeChange` no longer calling the
+  full `apply()`) is D85's scroll-ownership split.

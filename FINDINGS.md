@@ -25,6 +25,29 @@ How each claim here (and the load-bearing claims in ARCHITECTURE.md) was checked
 
 ---
 
+## Open / needs browser verification (index)
+
+The highest-value unverified claims, surfaced here so they aren't buried inside
+long entries. Anything ❓/📐 below was never machine- or browser-checked and
+should be re-confirmed before the port (or anyone) relies on it:
+
+- **F-PRESETS-2** ❓ — React 18 batching of the nine `applyPreset` setters into
+  one render pass; no render-count test exists.
+- **F6** ❓ — the pdf.js extraction path (`itemsToLines` + worker) has never been
+  exercised in a real browser; only the pure cleanup is ✅.
+- **F7** ❓ — EPUB parsing is ✅ on one constructed file only; real-world EPUB
+  variety is untested.
+- **F4** 📐 — ORP "left-of-centre + pinned" is pure design rationale, with no
+  ✅/🧪/👁 backing (unlike its sibling F3).
+- **F18 (open sub-question)** — whether `loadingTask.destroy()` is safe after a
+  rejected load (corrupt/truncated PDF) is still unconfirmed; the main leak fix
+  itself is 🧪-verified.
+- **Outstanding browser-test tails** — F13/F14/F15 (felt centering/overlap), F19,
+  F20, F21, and F-PRESETS-4 each close with a browser-test checklist that is still
+  open.
+
+---
+
 ## Performance
 
 ### F1 — The perf cliff was per-tick reconciliation, and it needed TWO fixes
