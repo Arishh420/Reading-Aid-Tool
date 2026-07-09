@@ -595,6 +595,40 @@
   `onRangeChange`.
   Fixes #17-regression. See FINDINGS.md F21.
 
+## Feature/bug-fix — Minimal HUD during playback + space-bar pause trap (issue #38)
+
+- **D86 · Space is routed separately from the blanket control-yield guard;
+  only BUTTON/SELECT/TEXTAREA/text-`INPUT` yield Space (annotates/narrows
+  D40).** *Real bug, user repro.* D40's keydown handler bailed out of Space
+  (and arrows/Home) for **any** focused `INPUT`/`SELECT`/`TEXTAREA`/`BUTTON`.
+  That's correct for arrows (don't hijack a slider/select) and correct for
+  Space-on-a-BUTTON (native click already toggles the pacer; re-handling would
+  double-fire), but it also meant Space was swallowed by a focused **WPM
+  number**, **Word number**, or **scrubber range** field — the user adjusts
+  WPM mid-read, presses Space to pause, and nothing happens because focus is
+  still in the number input. Fix: a pure predicate,
+  `spaceTogglesFrom(el)` (`src/pacer/keyboard.ts`), returns `true` (pacer
+  should toggle) for `INPUT[type=number]` and `INPUT[type=range]` — Space is
+  inert text in both, so claiming it costs nothing — and `false` (yield to
+  native behavior) for `BUTTON`, `SELECT`, `TEXTAREA`, and text-type `INPUT`s
+  (notably the PresetsPanel save/rename name field, where a literal space must
+  still be typeable). The App.tsx keydown handler checks this predicate
+  **before** the existing blanket tag-based guard, which remains unchanged and
+  still governs arrows/Home. **The BUTTON path is untouched** — the predicate
+  returns `false` for it exactly as the old blanket guard did — so the D40
+  double-fire guard (native click + a second toggle from the handler) cannot
+  reappear. Verified headlessly against the real bundled predicate (esbuild →
+  Node): number/range → `true`; button/select/textarea/text-input/checkbox/
+  radio → `false`; `null` target → `true`. See FINDINGS.md F22.
+  Alternatives considered and rejected: blurring the WPM field on commit (the
+  field commits live on every keystroke via `onChange`, so there's no natural
+  "commit" moment to hang a blur off, and it wouldn't cover the Word field or
+  scrubber); relying on Part A's HUD collapse alone to remove the trap fields
+  (D87) — that only helps while *playing*; the equally-real paused→play flow
+  (focus the WPM field while paused, press Space to start) is untouched by
+  hiding fields only during playback, so a fix that only works one direction
+  isn't a fix.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

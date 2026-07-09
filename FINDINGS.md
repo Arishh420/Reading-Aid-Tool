@@ -450,6 +450,37 @@ PR description / issue thread.
 
 ---
 
+### F22 — Minimal HUD + space-bar pause trap (issue #38): predicate ✅, build 🧪, everything visual/interactive ❓
+
+**The Space-routing predicate is ✅ unit-verified against the real shipped
+code**, not a hand-copied restatement of it. `src/pacer/headless-test.mjs`
+esbuild-bundles the actual `src/pacer/keyboard.ts` (`bundle: false, write:
+false`, then a temp-file dynamic `import()` that's deleted immediately after),
+so the 9 checks exercise the same module App.tsx imports. Confirmed: focused
+`INPUT[type=number]` and `INPUT[type=range]` → `true` (this is the #38 fix —
+Space toggles the pacer from the WPM/Word/scrubber fields); focused `BUTTON`,
+`SELECT`, `TEXTAREA`, text-type `INPUT`, `checkbox`, `radio` → `false` (yields
+to native behavior — this is what keeps D40's double-fire guard intact); `null`
+target → `true`. This is the strongest evidence in this feature; it directly
+proves the routing logic, though it stubs DOM elements as plain
+`{ tagName, type }` objects rather than exercising a real `KeyboardEvent` in a
+real document.
+
+**What's ❓ — genuinely unverified, not just under-tested:**
+- The reported repro itself: play → focus/change the WPM field → Space now
+  pauses, in all three modes (flowing/RSVP/chunk).
+- Paused→play from a focused WPM field via Space.
+- No double-toggle when the play button has focus and Space is pressed (the
+  D40 regression check — the predicate says this is safe, but a synthetic
+  click racing a keydown handler in a real browser is exactly the kind of
+  thing that can surprise).
+- Typing a literal space into the PresetsPanel save/rename name field still
+  inserts a space rather than pausing the pacer.
+
+(2026-07-09, feature/reading-hud-and-spacebar-fix)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.

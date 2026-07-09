@@ -14,6 +14,7 @@ import { ThemeSelector } from './ui/ThemeSelector';
 import { PresetsPanel } from './ui/PresetsPanel';
 import { DEFAULT_THEME, type Theme } from './ui/theme';
 import { firstWordlikeFrom, usePacer } from './pacer/usePacer';
+import { spaceTogglesFrom } from './pacer/keyboard';
 import { buildDwellMultipliers } from './pacer/dwell';
 import { PacerControls } from './pacer/PacerControls';
 import { ModeSettings, type PacerMode } from './pacer/ModeSettings';
@@ -134,16 +135,25 @@ export default function App() {
   useEffect(() => {
     if (phase !== 'reading') return;
     const onKey = (e: KeyboardEvent) => {
-      // Let focused controls handle their own keys (avoids double-firing Space
-      // on a focused button, or hijacking arrows on a slider/select).
+      // Space is routed separately from the blanket control-yield below (D86):
+      // it only yields to elements where Space is native activation (BUTTON —
+      // avoids the D40 double-fire) or text entry (SELECT/TEXTAREA/text
+      // INPUTs, e.g. the preset-name field). A focused number/range input
+      // (WPM, Word, scrubber) still lets Space toggle the pacer — this is what
+      // closes the #38 focus trap.
+      if (e.code === 'Space') {
+        if (!spaceTogglesFrom(e.target as Element | null)) return;
+        e.preventDefault();
+        pacer.toggle();
+        return;
+      }
+      // Let focused controls handle their own keys (avoids hijacking arrows on
+      // a slider/select, or Home inside a text field).
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') {
         return;
       }
-      if (e.code === 'Space') {
-        e.preventDefault();
-        pacer.toggle();
-      } else if (e.key === 'ArrowRight') {
+      if (e.key === 'ArrowRight') {
         e.preventDefault();
         const n = firstWordlikeFrom(words, pacer.indexRef.current + 1);
         if (n !== -1) pacer.seek(n);
