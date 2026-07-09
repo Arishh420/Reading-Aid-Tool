@@ -135,12 +135,13 @@ export default function App() {
   useEffect(() => {
     if (phase !== 'reading') return;
     const onKey = (e: KeyboardEvent) => {
-      // Space is routed separately from the blanket control-yield below (D86):
-      // it only yields to elements where Space is native activation (BUTTON —
-      // avoids the D40 double-fire) or text entry (SELECT/TEXTAREA/text
-      // INPUTs, e.g. the preset-name field). A focused number/range input
-      // (WPM, Word, scrubber) still lets Space toggle the pacer — this is what
-      // closes the #38 focus trap.
+      // Space is routed separately from the blanket control-yield below (D86,
+      // revised by D89): it toggles the pacer regardless of focus UNLESS the
+      // focused element has a genuine native action of its own — the
+      // Play/Pause button specifically (native click; avoids the D40
+      // double-fire), or real text/checkbox/radio entry. Everything else —
+      // the Mode <select>, the Presets toggle button, Restart, a clicked word
+      // span, <body> — reaches the pacer. See pacer/keyboard.ts.
       if (e.code === 'Space') {
         if (!spaceTogglesFrom(e.target as Element | null)) return;
         e.preventDefault();

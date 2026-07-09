@@ -599,7 +599,14 @@
 
 - **D86 · Space is routed separately from the blanket control-yield guard;
   only BUTTON/SELECT/TEXTAREA/text-`INPUT` yield Space (annotates/narrows
-  D40).** *Real bug, user repro.* D40's keydown handler bailed out of Space
+  D40).** **Superseded by D89** — browser testing found this yield-set both
+  too broad (yielded for *every* BUTTON/SELECT, not just Play/Pause — issue
+  #38 bug #3) and, via its `if (tag !== 'INPUT') return false` default, too
+  eager to yield for elements that were never form controls at all (a clicked
+  word `<span>`, or `<body>` after a click drops focus there — bug #2). D89
+  has the corrected design. Left intact below per append-only discipline;
+  read D89 for what actually shipped. *Real bug, user repro (original report).*
+  D40's keydown handler bailed out of Space
   (and arrows/Home) for **any** focused `INPUT`/`SELECT`/`TEXTAREA`/`BUTTON`.
   That's correct for arrows (don't hijack a slider/select) and correct for
   Space-on-a-BUTTON (native click already toggles the pacer; re-handling would
@@ -631,7 +638,11 @@
 
 - **D87 · HUD collapse changes `.app-top`'s height only, never `.reader-pane`'s
   width; implemented as a CSS `max-height`/opacity transition on existing row
-  classes, not conditional unmount.** *User direction (issue #38 Part A).*
+  classes, not conditional unmount.** **Ceiling values corrected by D89** —
+  the 6rem/6rem/32rem/2rem figures below clipped real content even at rest
+  (issue #38 bug #1: the theme selector disappeared); D89 raises them. The
+  height-only/never-width mechanism and the RSVP-glide/no-re-wrap reasoning
+  below are unchanged and still accurate. *User direction (issue #38 Part A).*
   While `pacer.playing`, `.app-top` gets a `.playing` class; four existing
   row classes (`.reader-toolbar-controls`, `.mode-settings`, `.presets-panel`,
   `.kbd-hint`) collapse via `max-height: 0; opacity: 0; margin-top: 0` under
@@ -661,7 +672,10 @@
   prop, not a remount; the progress-bar/% elements are hoisted to a shared
   JSX position; WPM keeps a live compact slider (number field dropped); the
   scrubber and Word field are dropped entirely during playback (not just
-  visually hidden).** *User direction, resolving the plan's open questions.*
+  visually hidden).** **WPM control choice reversed by D89** (issue #38 item
+  5) — compact mode now shows the number box, not the slider; the
+  stays-mounted/hoisted-`pctRef`/scrubber-and-Word-field-dropped decisions
+  below are unchanged. *User direction, resolving the plan's open questions.*
   `PacerControls` already owns an imperative `pacer.subscribe` writing into
   `fillRef`/`pctRef` — swapping to a *separate* HUD component would tear that
   subscription down and re-init it across every play/pause, causing a visible
@@ -687,6 +701,136 @@
   visible but disabled — out of scope per the user's explicit "dropped"
   instruction, and a disabled range control still occupies HUD space the
   minimalism goal is trying to reclaim.
+
+## Bug-fix pass — issue #38 browser-testing QA round (corrects D86–D88)
+
+Browser testing of the uncommitted #38 branch surfaced four real bugs and
+requested two feature changes. Corrections are made directly in D86–D88 above
+(nothing here was ever committed/shared, so there's no history to preserve by
+leaving the bugs in place) — this entry is the record of *what was wrong and
+why*, for anyone reading the superseded text.
+
+- **D89 · Space predicate redesigned to default-to-toggle with a narrow,
+  enumerated yield set; HUD collapse ceilings raised to stop clipping at
+  rest; disabled buttons made visually legible; compact WPM reverted to a
+  number box; WPM floor lowered 100 → 50.**
+
+  **Bug #2 (Space after word-click seeks scrolls the page instead of
+  toggling) and bug #3 (Space toggles the Presets panel / Mode dropdown
+  instead of the pacer) shared one root cause.** D86's predicate was
+  `if (tag !== 'INPUT') return false` — i.e. it **defaulted to yield** for
+  anything that wasn't literally an `<input>`, and separately yielded for
+  *every* `BUTTON`/`SELECT` unconditionally. Diagnosis of bug #2 (traced
+  through `Reader.tsx`'s `handleClick`, not assumed): the word `<span>` has no
+  `tabIndex` and no `.focus()` call, and `handleClick` never calls
+  `stopPropagation()` — so clicking a word does not focus the span; the
+  browser drops focus to `<body>` (a non-`INPUT` element) instead. The old
+  predicate yielded for `<body>` too, so the handler returned without calling
+  `preventDefault()`, and the browser's native Space-scroll fired. Bug #3 was
+  the same default, hitting `BUTTON` (Presets toggle, any preset card) and
+  `SELECT` (Mode dropdown) instead of only the Play/Pause button the yield was
+  ever meant to protect.
+
+  **Fix:** the predicate (`src/pacer/keyboard.ts`) now defaults to **toggle**
+  and yields only for a narrow, enumerated set: `TEXTAREA`; the Play/Pause
+  button *specifically*, identified by a marker attribute
+  (`pacerToggleButtonProps`, spread onto that one `<button>` in
+  `PacerControls.tsx`) rather than by tag name — every other `BUTTON`
+  (Presets toggle, Restart, Load another, a preset card, …) now toggles the
+  pacer; `SELECT` (the Mode dropdown's native "open on Space" is deliberately
+  overridden) now toggles; and `INPUT` types with a genuine native Space
+  action of their own — `text` (covers the preset-name/rename fields without
+  a special case), `checkbox`, `radio`, `file` — still yield. `checkbox`/
+  `radio` weren't explicitly named in the bug report, but were added
+  proactively: a focused checkbox (Bionic reading, Natural pauses) has a real
+  native "toggle checked" action on Space, exactly the kind of collision D40
+  was written to prevent for buttons — leaving it out of the yield set would
+  have meant pressing Space to check a settings box also paused/played the
+  pacer as an unrequested side effect. **The Play/Pause button path is now
+  *more* precisely exempted than before** (matched by attribute rather than
+  by tag), so D40's double-fire guard cannot reappear — confirmed by the
+  headless test asserting the marker-attribute button yields while every
+  other button toggles. Verified headlessly (13 checks, real bundled
+  predicate): number/range/other-buttons/SELECT/word-span/`<body>`/null →
+  toggle; the marked Play button/TEXTAREA/text/checkbox/radio/file → yield.
+
+  **Bug #1 (theme selector hidden behind the Presets row).** Root cause:
+  D87's collapse CSS applied `max-height`/`overflow: hidden` to
+  `.reader-toolbar-controls` etc. **unconditionally** — not scoped to only
+  the `.playing` state — with a 6rem ceiling. Settings (bionic toggle + 3
+  chips + natural-pauses checkbox + 2 sliders) plus ThemeSelector's chips
+  wrap well past 6rem in ordinary use, so `overflow: hidden` silently clipped
+  whatever didn't fit even while the pacer wasn't playing — and ThemeSelector,
+  rendered last in the flex-wrap flow, was the part clipped away. This was a
+  sizing error, not a design error: the *mechanism* (D87 — collapse via
+  `max-height`, height-only/never-width) is correct and unchanged; the
+  *numbers* were guessed without rendering the real content. Fix: raised the
+  resting-state ceilings for `.reader-toolbar-controls`/`.mode-settings`/
+  `.presets-panel` to 40rem (`.kbd-hint`, a single short line, to 4rem) —
+  large enough that `min(natural-content-height, ceiling)` equals the natural
+  height for any realistic content, so the resting state is visually
+  unclipped, identical to having no `max-height` at all. This makes the
+  already-documented D87 tail-snap caveat (the transition is proportional to
+  the ceiling, not the actual content height) somewhat more pronounced for
+  short rows — a deliberate tradeoff: a bug that silently deletes UI is worse
+  than an imperfect animation curve, and the caveat was already flagged as a
+  browser-verification item (FINDINGS F22), not a guarantee.
+
+  **Bug #4 (RSVP: Play/Pause stops responding — to click, not just Space —
+  after a context-strip seek), diagnosed before any fix was written, per
+  instruction.** Traced to `PacerControls.tsx`'s pre-existing (confirmed via
+  `git show HEAD:src/pacer/PacerControls.tsx` — present before any #38 work)
+  `disabled={pacer.atEnd && !pacer.playing}` on the Play/Pause button, and
+  `usePacer.ts`'s `commit()`, which sets `atEnd = true` whenever
+  `firstWordlikeFrom(words, next + 1) === -1` — i.e. whenever the current
+  position has no word-like token after it. The built-in sample document is
+  ~150 words; the RSVP context strip's buffered window
+  (`pad = Math.max(3, contextLines)` blocks either side) surfaces enough of a
+  short document that its last block — and therefore its last word — is
+  frequently visible and clickable. Seeking there via the strip's
+  `onSeekClick` → `pacer.seek()` → `commit()` sets `atEnd = true`, which (a)
+  makes the button natively `disabled` — blocking **both** click and keyboard
+  activation, matching "not just Space, the click itself is broken" exactly —
+  and (b) makes `pacer.toggle()`'s own internal guard
+  (`firstWordlikeFrom(...) !== -1`) refuse to start playing even via the
+  global Space handler, which doesn't check `disabled` at all. **This is not
+  a regression from the #38 HUD/predicate work** — the disabling logic
+  predates this branch — and it is not unique to RSVP; seeking to the last
+  word via the main reader's click-to-seek in flowing/chunk mode would trip
+  the same guard. It reads as "broken" rather than "expected" because the
+  button has **no visual difference when disabled** — `button { color: #fff;
+  background: var(--accent); }` is set unconditionally and no `:disabled`
+  rule existed, so the browser's default disabled dimming was overridden and
+  the button looked fully active while silently doing nothing. **Fix scope,
+  deliberately narrow:** added `button:disabled { opacity: 0.5; cursor:
+  not-allowed; }` (and excluded `:disabled` from the hover brightness filter)
+  so the state is legible. The underlying behavior — you cannot press Play
+  past the last word — is left intact; changing *that* (e.g. auto-restart
+  from the beginning when Play/Space is pressed at the end) is a product
+  decision about pacer semantics, not a bug fix, and wasn't made unilaterally.
+  Flagged as an open question below, not decided silently.
+
+  **Item 5 (compact WPM control reverted from slider to number box).** *User
+  direction, reversing D88's choice.* `PacerControls.tsx`'s compact layout now
+  renders the same `<input type="number">` used in the full/paused view
+  (dropping only the slider) instead of a `pacer-wpm-compact`-styled range
+  input; the now-unused CSS class was removed. Space-safety is unaffected —
+  number inputs were already in the toggle set under both the old and new
+  predicate — confirmed by the existing "number input -> toggles" headless
+  check, which covers this box unchanged.
+
+  **Item 6 (WPM floor lowered 100 → 50).** *User direction; specific value is
+  this pass's judgment call, flagged per the user's own "your call, but flag
+  what you chose" instruction.* `WPM_MIN` in `PacerControls.tsx` changed from
+  100 to 50. Not left uncapped downward: `usePacer`'s clock computes
+  `msPerWord = 60000 / WPM`, which diverges to `Infinity` as `WPM → 0` — an
+  allowed `WPM = 0` would make the pacer never cross its advance threshold,
+  effectively freezing it silently (not a crash, but a confusing "Play does
+  nothing" state indistinguishable from bug #4 to an unsuspecting user). 50
+  was chosen over some other positive floor because it's a clean multiple of
+  the existing `step={10}` granularity, sits meaningfully below the old 100
+  floor for very deliberate/accessibility-driven reading, and was the value
+  the user suggested as a starting point. `WPM_MAX` (1000) is untouched.
 
 ## Appendix — Log meta
 

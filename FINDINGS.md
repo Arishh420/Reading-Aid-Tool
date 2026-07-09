@@ -45,10 +45,14 @@ should be re-confirmed before the port (or anyone) relies on it:
 - **Outstanding browser-test tails** — F13/F14/F15 (felt centering/overlap), F19,
   F20, F21, and F-PRESETS-4 each close with a browser-test checklist that is still
   open.
-- **F22** ❓ — the entire visual/interactive half of the #38 HUD fix (collapse
-  smoothness, RSVP glide-not-jump, no re-wrap, continuous progress bar, no
-  double-toggle on the play button, the paused→play Space repro) is unverified
-  by anything but static analysis; only the Space-routing predicate itself is ✅.
+- **F22/F23** ❓ — four of F22's originally-❓ items turned out to be real bugs
+  (F23); the *fixes* for those bugs are themselves unwatched in a browser so
+  far — still just corrected code + a passing headless predicate suite (now
+  13/13). The remaining visual/interactive half (collapse smoothness at the
+  new 40rem ceilings, RSVP glide-not-jump, no re-wrap, continuous progress
+  bar, no double-toggle on the play button, the paused→play Space repro,
+  `:disabled` styling legibility across themes) is still unverified by
+  anything but static analysis.
 
 ---
 
@@ -454,62 +458,152 @@ PR description / issue thread.
 
 ---
 
-### F22 — Minimal HUD + space-bar pause trap (issue #38): predicate ✅, build 🧪, everything visual/interactive ❓
+### F22 — Minimal HUD + space-bar pause trap (issue #38): predicate ✅, build 🧪, everything visual/interactive ❓ — first-round ❓ items confirmed broken by browser testing, fixed, see F23
 
-Two deliverables, two very different confidence levels.
+**Revised after browser testing.** The first pass of this entry reported 9
+predicate checks passing and listed the visual/interactive behaviors as
+"genuinely unverified, not just under-tested." Browser testing then found
+that four of the specific things flagged unverified below were in fact
+**broken** — not edge cases, straightforward reproductions on first try. This
+is worth recording plainly: the ❓ tagging methodology worked exactly as
+intended (it correctly refused to claim confidence the team didn't have), and
+the bugs it declined to rule out were real. See F23 for the diagnoses and
+fixes. This entry is left otherwise intact as the honest record of what was
+and wasn't known *before* that testing pass; F23 is the record of what was
+found *by* it.
 
-**The Space-routing predicate is ✅ unit-verified against the real shipped
-code**, not a hand-copied restatement of it. `src/pacer/headless-test.mjs`
-esbuild-bundles the actual `src/pacer/keyboard.ts` (`bundle: false, write:
-false`, then a temp-file dynamic `import()` that's deleted immediately after),
-so the 9 checks exercise the same module App.tsx imports. Confirmed: focused
-`INPUT[type=number]` and `INPUT[type=range]` → `true` (this is the #38 fix —
-Space toggles the pacer from the WPM/Word/scrubber fields); focused `BUTTON`,
-`SELECT`, `TEXTAREA`, text-type `INPUT`, `checkbox`, `radio` → `false` (yields
-to native behavior — this is what keeps D40's double-fire guard intact); `null`
-target → `true`. This is the strongest evidence in this feature; it directly
-proves the routing logic, though it stubs DOM elements as plain
-`{ tagName, type }` objects rather than exercising a real `KeyboardEvent` in a
-real document.
+**The Space-routing predicate was ✅ unit-verified against the real shipped
+code** (esbuild-bundled `src/pacer/keyboard.ts`, not a hand-copied
+restatement), but the predicate itself was wrong in a way the original 9
+checks didn't catch — they tested the cases the design *intended* to cover
+(number/range toggle, button/select/textarea/text-input yield) without a
+case for "an element that's none of the above" (a clicked word span,
+`<body>`). The gap was in what the test suite *didn't* think to ask, not in
+whether the tested assertions were true — a reminder that a green suite only
+proves what it actually exercises. The revised predicate and its 13-check
+suite (now including a bare `SPAN`, `BODY`, and a same-tag-different-attribute
+case for the Play button) are described in F23.
 
-**`npm run build` (`tsc -b` + `vite build`) is 🧪 clean** — no type errors from
-the new `compact` prop, the conditional JSX, or the CSS additions (CSS isn't
-type-checked, but the build pipeline processing it without erroring is the
-extent of what a clean build proves here).
+**`npm run build` (`tsc -b` + `vite build`) was 🧪 clean** on the first pass
+and remains 🧪 clean after the fixes — expected, since none of the four bugs
+were type errors (a disabled-by-`atEnd` button, a CSS clipping bug, and an
+overly-broad runtime predicate all typecheck fine).
 
-**Everything else is ❓ — genuinely unverified, not just under-tested:**
-- The reported repro itself: play → focus/change the WPM field → Space now
-  pauses, in all three modes (flowing/RSVP/chunk).
-- Paused→play from a focused WPM field via Space (the direction Part A's HUD
-  collapse does *not* cover, since the WPM field is present while paused).
-- No double-toggle when the play button has focus and Space is pressed (the
-  D40 regression check — the predicate says this is safe, but a synthetic
-  click racing a keydown handler in a real browser is exactly the kind of
-  thing that can surprise).
+**Confirmed broken by browser testing (see F23 for full diagnosis):**
+- Bug #1: HUD collapse CSS clipped `.reader-toolbar-controls` (hiding
+  ThemeSelector) even at rest, not just while collapsing — the "HUD collapse
+  smoothness" item below undersold this; the real failure was permanent
+  clipping, not just an animation quality question.
+- Bug #2: Space after a click-to-seek did not toggle the pacer and the page
+  scrolled instead — the "reported repro" and the general Space-routing
+  design both had this exact gap and it was real.
+- Bug #3: Space toggled the Presets panel / Mode dropdown instead of the
+  pacer while either was focused — the "everything works except the tested
+  cases" gap manifested exactly as this file predicted it might.
+- Bug #4: the RSVP Play/Pause button (click **and** Space) stopped responding
+  after a context-strip seek near the document's end — not a new #38
+  regression; a pre-existing `atEnd`-disables-Play interaction with no visual
+  disabled state, surfaced by this round of testing.
+
+**Still ❓ — not yet observed, unaffected by this round's fixes:**
+- Paused→play from a focused WPM field via Space (still expected to work per
+  the predicate design; not specifically re-tested).
+- No double-toggle when the Play/Pause button has focus and Space is pressed
+  — now backed by a *more* precise headless check (marker-attribute match,
+  not tag-name match) than the first pass had, but still not watched in a
+  real browser.
 - Typing a literal space into the PresetsPanel save/rename name field still
   inserts a space rather than pausing the pacer.
-- HUD collapse smoothness — whether the `max-height`-ceiling technique (D87)
-  reads as a smooth shrink or snaps visibly in the tail of the transition for
-  rows much shorter than their ceiling (most realistic case: `.mode-settings`
-  and `.reader-toolbar-controls` at their default un-expanded heights, well
-  under the 6rem ceiling).
-- The progress bar/% staying visually continuous (no flash/reset) across the
-  play/pause boundary — this follows from the code (same mounted node, same
-  subscription, per D88) but was never watched happen.
-- RSVP's centered word gliding down rather than jumping as `.app-top` shrinks
-  — the flexbox mechanics (`.rsvp-stage { flex: 1; justify-content: center }`)
-  guarantee it moves in lockstep with the collapse *by construction*, which is
-  a stronger basis for confidence than most 📐 entries in this file, but it is
-  still an inference, not a screen recording.
-- Flowing/chunk text genuinely not re-wrapping and `scrollTop` genuinely being
-  preserved through the transition (same reasoning: structurally guaranteed
-  by pane width being untouched, not watched).
-- Arrow-key seek and click-to-seek continuing to work while the HUD is
-  collapsed (nothing in the collapse touches the keydown handler or the
-  reader's delegated click handler, but "nothing touches it" is a code-reading
-  claim, not a browser observation).
+- HUD collapse smoothness for rows shorter than their (now larger, 40rem)
+  ceiling — the tail-snap caveat from D87/D89 is more pronounced now that the
+  ceilings were raised to fix bug #1; whether it reads as acceptable is still
+  unconfirmed.
+- The progress bar/% staying visually continuous across the play/pause
+  boundary; RSVP's centered word gliding rather than jumping; flowing/chunk
+  text not re-wrapping and `scrollTop` being preserved; arrow-key seek and
+  click-to-seek continuing to work while the HUD is collapsed — all unchanged
+  from the first pass, still inferences from code structure, not observations.
+- The visible `:disabled` styling (bug #4's fix) actually being legible/
+  reads-as-disabled in the browser, across all four themes.
 
 (2026-07-09, feature/reading-hud-and-spacebar-fix)
+
+---
+
+### F23 — Issue #38 QA-round fixes: root causes and what's actually verified ✅🧪❓
+
+Four bugs + two feature changes from the first browser-testing round (see
+F22). Root causes were traced through the actual source before any fix was
+written, per instruction — none of these are guesses.
+
+**Bug #1 root cause (✅ code-verified by inspection, not just reasoned):** the
+first-pass HUD collapse CSS added `overflow: hidden; max-height: 6rem` to
+`.reader-toolbar-controls` etc. as an **unconditional base rule** — not
+scoped under `.app-top.playing` — so it clipped content whenever the row's
+natural height exceeded 6rem, regardless of play state. Settings (bionic
+toggle + 3 chips + natural-pauses checkbox + 2 sliders) plus ThemeSelector's
+chips routinely wrap past 6rem; ThemeSelector, rendered last in the flex-wrap
+order, was the part that vanished. Fix: raised the resting ceilings to 40rem
+(4rem for `.kbd-hint`). See D89 for the full writeup.
+
+**Bugs #2 and #3 root cause (✅ traced through `Reader.tsx`, not assumed):**
+confirmed by reading `WordSpan`/`handleClick` in `Reader.tsx` directly — the
+word `<span>` has no `tabIndex`, no `.focus()` call, and `handleClick` never
+calls `stopPropagation()`. A click on a non-focusable element drops browser
+focus to `<body>`. The (bug-#2-causing) predicate defaulted to "yield" for
+any non-`INPUT` element, including `<body>`, so the app's Space handler
+returned without `preventDefault()` and the browser's native Space-scroll
+fired. The same default-yield logic separately caused bug #3 by yielding for
+every `BUTTON`/`SELECT`, not just Play/Pause. Fix: the predicate now defaults
+to *toggle* and yields only for an enumerated set (Play/Pause button by
+marker attribute, `TEXTAREA`, and text/checkbox/radio/file `INPUT`s). See D89.
+
+**Bug #4 root cause (✅ code-verified, including confirming it predates this
+branch via `git show HEAD:src/pacer/PacerControls.tsx`):** `disabled=
+{pacer.atEnd && !pacer.playing}` on the Play/Pause button, combined with
+`usePacer`'s `atEnd` (true whenever no word-like token remains after the
+current index) and the ~150-word built-in sample document, whose short length
+makes the RSVP context strip's buffered window frequently include — and make
+clickable — the document's actual last word. Seeking there sets `atEnd =
+true`, natively disabling the button (blocks click *and* keyboard) and making
+`pacer.toggle()`'s own internal guard refuse to start playing via Space too.
+Confirmed **not** a #38 regression (the `disabled` line predates this
+branch). The button gave no visual indication of being disabled — `button {
+color: #fff; background: var(--accent); }` is unconditional and no
+`:disabled` rule existed — which is why it read as "broken" rather than
+"expectedly inert at the end." Fix scope was deliberately narrow: added
+visible `:disabled` styling; did **not** change the underlying "can't play
+past the last word" behavior, since that's a pacer-semantics product decision
+(e.g. "should Play at the end auto-restart?") that wasn't made unilaterally —
+flagged as an open question in the summary handed back for review.
+
+**Headless ✅ (13/13, up from 9/9 — real bundled `src/pacer/keyboard.ts`, plus
+`pacerToggleButtonProps` imported from the same bundle rather than
+hand-copied so the test can construct a "real" marked Play button):**
+number/range inputs, every button *except* the marked Play/Pause button,
+`SELECT`, a bare `SPAN`, `BODY`, and `null` → toggle; the marked Play/Pause
+button, `TEXTAREA`, text/checkbox/radio/file inputs → yield. Output
+reproduced in the handoff summary.
+
+**🧪 Build:** `npm run build` (`tsc -b` + `vite build`) clean after all six
+changes.
+
+**Still ❓ — this round didn't add browser coverage, only code fixes:**
+- All four bugs' *fixes* — none were watched working in an actual browser
+  yet, only reasoned from corrected code + the headless predicate proof.
+- Whether 40rem is *actually* large enough for `.presets-panel` with many
+  user presets expanded across all four groups — raised from 32rem
+  proactively but not measured against real rendered content, same class of
+  error that caused bug #1 in the first place (flagged so this doesn't repeat
+  silently).
+- Whether the visible `:disabled` styling reads clearly across all four
+  themes (light/sepia/dark/dim) — `opacity: 0.5` is theme-agnostic by
+  construction but was not checked against each theme's actual contrast.
+- The open product question from bug #4: should pressing Play/Space at
+  `atEnd` auto-restart, or is "disabled until you seek back or hit Restart"
+  the intended behavior? Left as-is pending explicit direction.
+
+(2026-07-09, feature/reading-hud-and-spacebar-fix, QA-round fixes)
 
 ---
 
@@ -523,6 +617,12 @@ extent of what a clean build proves here).
   F12-style collision doesn't recur.
 - **F22** added (2026-07-09, issue #38): Space-routing predicate ✅, build 🧪,
   HUD collapse/RSVP-glide/no-re-wrap/no-double-toggle ❓ pending browser test.
+  Revised same day after browser testing confirmed four of the ❓ items were
+  real bugs (F22 updated in place; see F23).
+- **F23** added (2026-07-09, issue #38 QA round): root-caused and fixed the
+  four bugs F22 flagged as possible; predicate rewritten (13/13 headless),
+  HUD ceilings corrected, disabled-button styling added. Fixes themselves
+  still ❓ pending browser re-test.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 

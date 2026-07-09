@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { PacerApi } from './usePacer';
+import { pacerToggleButtonProps } from './keyboard';
 
 /**
  * Shared pacer transport (§7.2) + position UI (items 5–6 of the perf pass).
@@ -9,13 +10,19 @@ import type { PacerApi } from './usePacer';
  * tick. WPM and the play state are ordinary React state (user-driven, rare).
  * Both WPM and position are typeable, not just draggable.
  *
- * Minimal HUD (issue #38): `compact` swaps to a reduced layout (transport
- * + live WPM slider + read-only progress; scrubber/Word/WPM-number dropped)
- * without unmounting this component, so the imperative subscription above
- * never tears down across the play/pause boundary.
+ * Minimal HUD (issue #38, D88/D89): `compact` swaps to a reduced layout
+ * (transport + a live WPM number box + read-only progress; scrubber, Word
+ * field, and WPM slider dropped) without unmounting this component, so the
+ * imperative subscription above never tears down across the play/pause
+ * boundary.
  */
 
-export const WPM_MIN = 100;
+// Floor lowered 100 -> 50 (issue #38 item 6): 50 is the lowest WPM that still
+// meaningfully "plays" (msPerWord = 60000/WPM stays finite and useful for very
+// deliberate/accessibility-driven reading); WPM must stay > 0 or msPerWord
+// diverges to Infinity and the pacer effectively freezes. Not left uncapped
+// downward for that reason.
+export const WPM_MIN = 50;
 export const WPM_MAX = 1000;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -27,12 +34,12 @@ interface PacerControlsProps {
   wpm: number;
   onWpmChange: (wpm: number) => void;
   /**
-   * Minimal HUD mode (issue #38): drops the scrubber and the WPM/Word number
-   * fields, keeping only transport + a live WPM slider + read-only progress.
-   * PacerControls stays mounted across this switch — only the JSX inside it
-   * changes — so the progress-bar/% subscription (fillRef/pctRef) is never
-   * torn down. `pctRef`'s span is hoisted to a position rendered identically
-   * in both layouts for the same reason (see D88).
+   * Minimal HUD mode (issue #38): drops the scrubber, the Word field, and the
+   * WPM slider, keeping only transport + the WPM number box + read-only
+   * progress. PacerControls stays mounted across this switch — only the JSX
+   * inside it changes — so the progress-bar/% subscription (fillRef/pctRef)
+   * is never torn down. `pctRef`'s span is hoisted to a position rendered
+   * identically in both layouts for the same reason (see D88).
    */
   compact?: boolean;
 }
@@ -94,6 +101,7 @@ export function PacerControls({ pacer, count, wpm, onWpmChange, compact = false 
             className="pacer-play"
             onClick={pacer.toggle}
             disabled={pacer.atEnd && !pacer.playing}
+            {...pacerToggleButtonProps}
           >
             {pacer.playing ? '❚❚ Pause' : '▶ Play'}
           </button>
@@ -142,28 +150,31 @@ export function PacerControls({ pacer, count, wpm, onWpmChange, compact = false 
 
         <label className="pacer-field">
           <span className="muted small">WPM</span>
-          <input
-            type="range"
-            className={compact ? 'pacer-wpm-compact' : undefined}
-            min={WPM_MIN}
-            max={WPM_MAX}
-            step={10}
-            value={wpm}
-            onChange={(e) => onWpmChange(Number(e.target.value))}
-            aria-label="Words per minute"
-          />
           {!compact && (
             <input
-              type="number"
-              className="num"
+              type="range"
               min={WPM_MIN}
               max={WPM_MAX}
               step={10}
               value={wpm}
-              onChange={(e) => onWpmInput(e.target.value)}
-              aria-label="Words per minute (exact)"
+              onChange={(e) => onWpmChange(Number(e.target.value))}
+              aria-label="Words per minute"
             />
           )}
+          {/* Compact HUD (issue #38 item 5): the number box, not the slider,
+              is what stays during playback — same control as the full/paused
+              view, just shown alone. It's a number input, so Space still
+              toggles the pacer when it's focused (spaceTogglesFrom). */}
+          <input
+            type="number"
+            className="num"
+            min={WPM_MIN}
+            max={WPM_MAX}
+            step={10}
+            value={wpm}
+            onChange={(e) => onWpmInput(e.target.value)}
+            aria-label="Words per minute (exact)"
+          />
         </label>
       </div>
     </div>

@@ -381,40 +381,58 @@ The pacer is always alive, but its keyboard handler is gated to the `reading` ph
   laid-out reader reads them. A `layoutKey` (derived from those values) is passed
   to the in-place modes so the overlay/highlight reposition when typography
   changes the layout (the same way they react to a bionic toggle or resize).
-- **Keyboard transport (M7; Space routing refined in issue #38, D86):** a
-  window `keydown` handler gives Space (play/pause), ←/→ (step word), Home
-  (restart). Arrows/Home still yield to any focused
+- **Keyboard transport (M7; Space routing refined in issue #38, D86, then
+  corrected by D89 after browser testing found the D86 design broke two
+  things):** a window `keydown` handler gives Space (play/pause), ←/→ (step
+  word), Home (restart). Arrows/Home still yield to any focused
   input/select/textarea/button (unchanged — don't hijack a slider/select).
   **Space is routed separately, through the pure predicate
   `spaceTogglesFrom` (`src/pacer/keyboard.ts`): it toggles the pacer
-  regardless of focus, *except* when the focused element is a `BUTTON`
-  (native click already toggles — re-handling would double-fire, per D40),
-  `SELECT`, `TEXTAREA`, or a text-type `INPUT`.** A focused `INPUT[type=number]`
-  or `INPUT[type=range]` (WPM, Word, scrubber) does **not** yield — Space is
-  inert there, so claiming it closes the #38 focus-trap bug (pressing Space
-  after editing WPM previously did nothing). This predicate is portable (no
-  DOM deps beyond reading `tagName`/`type`) and unit-tested headlessly against
-  the real bundled module (FINDINGS F22).
-- **Minimal HUD during playback (issue #38, D87/D88):** while `pacer.playing`,
-  `.app-top` gets a `.playing` class that collapses the settings-heavy rows
-  (`Settings`/`ThemeSelector` row, `PresetsPanel`, `ModeSettings`, the keyboard
-  hint) via a CSS `max-height`/opacity transition — pure CSS, no conditional
-  unmount, so there's no separate HUD component. `PacerControls` itself stays
-  mounted across the switch; a `compact` prop (`= pacer.playing`) swaps its
-  internal JSX to a reduced layout (transport + a live WPM range slider +
-  read-only progress; the WPM number field, Word field, and scrubber are
-  dropped). The progress-bar-fill and `%` elements render in the *same* JSX
-  position in both layouts specifically so the imperative `pacer.subscribe`
-  write (§5) is never aimed at a torn-down/remounted node. Because
-  `.app-top` is `flex: none` and the reader area is `flex: 1` in a fixed-height
-  column, this collapse changes **`.app-top`'s height only** — reader pane
-  *width* (and thus reading-column wrap) is untouched, so flowing/chunk text
-  never re-wraps and `scrollTop` is preserved; RSVP's centered stage grows
-  into the reclaimed space via ordinary flexbox centering, so the flashed word
-  glides rather than jumps. **This is deliberately not routed through
-  `layoutKey`** (unlike the bionic/text-size/line-width changes above) —
-  `layoutKey` exists to trigger reposition when typography can change word
-  *wrapping*, and this collapse structurally cannot affect wrapping.
+  regardless of focus by DEFAULT, yielding only for a narrow, enumerated
+  set** — `TEXTAREA`; the Play/Pause button *specifically*, identified by a
+  marker attribute (`pacerToggleButtonProps`, spread onto that one button in
+  `PacerControls.tsx`) rather than by tag name, so native click there doesn't
+  double-fire (D40); and `INPUT` types with a genuine native Space action of
+  their own (`text`, `checkbox`, `radio`, `file`). Everything else — number/
+  range inputs (WPM, Word, scrubber), `SELECT` (the Mode dropdown), every
+  *other* `BUTTON` (Presets toggle, Restart, Load another), a clicked word
+  span, `<body>` (where focus lands after a click on a non-focusable element,
+  e.g. after click-to-seek), `null` — toggles. **The D86 design instead
+  yielded by default for anything that wasn't literally an `INPUT`**, which
+  silently broke Space after any click-to-seek (focus drops to `<body>`, a
+  non-`INPUT` element, so Space fell through to the browser's native
+  scroll-on-space) and yielded for every `BUTTON`/`SELECT` rather than just
+  Play/Pause (Space toggled the Presets panel or Mode dropdown instead of the
+  pacer) — see D89, FINDINGS F22/F23. This predicate is portable (no DOM deps
+  beyond reading `tagName`/`type`/`hasAttribute`) and unit-tested headlessly
+  against the real bundled module (13 cases, FINDINGS F23).
+- **Minimal HUD during playback (issue #38, D87/D88, ceilings and WPM-control
+  choice corrected by D89):** while `pacer.playing`, `.app-top` gets a
+  `.playing` class that collapses the settings-heavy rows (`Settings`/
+  `ThemeSelector` row, `PresetsPanel`, `ModeSettings`, the keyboard hint) via
+  a CSS `max-height`/opacity transition — pure CSS, no conditional unmount, so
+  there's no separate HUD component. The resting-state ceilings must be
+  generous enough to never clip real content (D89: the first pass's 6rem
+  ceiling clipped the ThemeSelector even while NOT playing, since it wasn't
+  scoped to the `.playing` state and was sized without rendering the real
+  content — corrected to 40rem, 4rem for the single-line keyboard hint).
+  `PacerControls` itself stays mounted across the switch; a `compact` prop
+  (`= pacer.playing`) swaps its internal JSX to a reduced layout (transport +
+  the WPM number box + read-only progress — the same number box as the
+  full/paused view, just shown alone; the WPM slider, Word field, and
+  scrubber are dropped). The progress-bar-fill and `%` elements render in the
+  *same* JSX position in both layouts specifically so the imperative
+  `pacer.subscribe` write (§5) is never aimed at a torn-down/remounted node.
+  Because `.app-top` is `flex: none` and the reader area is `flex: 1` in a
+  fixed-height column, this collapse changes **`.app-top`'s height only** —
+  reader pane *width* (and thus reading-column wrap) is untouched, so
+  flowing/chunk text never re-wraps and `scrollTop` is preserved; RSVP's
+  centered stage grows into the reclaimed space via ordinary flexbox
+  centering, so the flashed word glides rather than jumps. **This is
+  deliberately not routed through `layoutKey`** (unlike the bionic/text-size/
+  line-width changes above) — `layoutKey` exists to trigger reposition when
+  typography can change word *wrapping*, and this collapse structurally
+  cannot affect wrapping.
 - **Empty/error states:** parse failures (incl. the scanned-PDF message) surface
   via the file-input error slot; a parsed document with zero blocks is rejected
   with "No readable text was found."
@@ -506,10 +524,26 @@ Markdown parser is portable.
 - **Minimal HUD + space-bar pause-trap fix** (issue #38, 2026-07-09): new
   portable `pacer/keyboard.ts` (`spaceTogglesFrom` predicate) narrows the M7
   keyboard handler's Space case so it toggles the pacer from a focused
-  WPM/Word/scrubber field while still yielding to buttons/selects/textareas/
-  text inputs (D86); `PacerControls.tsx` gains a `compact` prop rendering a
-  reduced HUD without unmounting (D88); `App.tsx`/`index.css` collapse the
-  settings-heavy `.app-top` rows via a `.playing`-driven CSS `max-height`/
-  opacity transition, deliberately outside the `layoutKey` mechanism (D87).
-  Portable: `pacer/keyboard.ts`. Web-coupled: the CSS collapse and the
-  `compact` layout branch in `PacerControls.tsx`.
+  WPM/Word/scrubber field while still yielding to the Play/Pause button and
+  genuine text entry (D86); `PacerControls.tsx` gains a `compact` prop
+  rendering a reduced HUD without unmounting (D88); `App.tsx`/`index.css`
+  collapse the settings-heavy `.app-top` rows via a `.playing`-driven CSS
+  `max-height`/opacity transition, deliberately outside the `layoutKey`
+  mechanism (D87). Portable: `pacer/keyboard.ts`. Web-coupled: the CSS
+  collapse and the `compact` layout branch in `PacerControls.tsx`.
+- **Issue #38 QA-round fixes** (2026-07-09, same day, still uncommitted):
+  browser testing of the above found four real bugs and requested two feature
+  changes; D89 corrects D86–D88. The Space predicate was rewritten to default
+  to toggle (was: default to yield), with the Play/Pause button identified by
+  a marker attribute (`pacerToggleButtonProps`) instead of by tag name — this
+  fixed Space doing nothing after a click-to-seek (focus drops to `<body>`,
+  which the old default wrongly yielded to) and Space toggling the Presets
+  panel/Mode dropdown instead of the pacer. The HUD collapse's resting-state
+  `max-height` ceilings were raised from 6rem (which clipped the theme
+  selector even when not playing) to 40rem. `PacerControls.tsx`'s `:disabled`
+  Play/Pause button (a pre-existing, not-#38-introduced interaction with
+  `usePacer`'s `atEnd`) got visible disabled styling, since it previously
+  looked identical whether active or not. Compact-mode WPM reverted from a
+  slider to the same number box used in the full view; `WPM_MIN` lowered
+  100 → 50. Root causes and full reasoning: D89. Verification: FINDINGS
+  F22 (revised)/F23.
