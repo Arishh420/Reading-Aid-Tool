@@ -629,6 +629,65 @@
   hiding fields only during playback, so a fix that only works one direction
   isn't a fix.
 
+- **D87 · HUD collapse changes `.app-top`'s height only, never `.reader-pane`'s
+  width; implemented as a CSS `max-height`/opacity transition on existing row
+  classes, not conditional unmount.** *User direction (issue #38 Part A).*
+  While `pacer.playing`, `.app-top` gets a `.playing` class; four existing
+  row classes (`.reader-toolbar-controls`, `.mode-settings`, `.presets-panel`,
+  `.kbd-hint`) collapse via `max-height: 0; opacity: 0; margin-top: 0` under
+  `.app-top.playing`, each with its own already-generous ceiling as the
+  un-collapsed value. Because `.app-shell` is a fixed-height flex column with
+  `.app-top` as `flex: none` and `.reader-pane`/`.rsvp-stage` as `flex: 1`,
+  shrinking `.app-top`'s rendered height only grows the *sibling* — pane
+  **width** (and therefore reading-column wrap) never changes, so flowing/
+  chunk text never re-wraps mid-transition and `scrollTop` is preserved by
+  construction (nothing about word positions relative to `.reader-content`
+  moves). RSVP's `.rsvp-stage` is `flex: 1; justify-content: center`, so as
+  `.app-top` shrinks each transition frame, the flexed remaining space grows
+  and the centered word glides down in lockstep — guaranteed by flexbox
+  layout, not by any JS repositioning. **Known caveat, flagged rather than
+  hidden:** the `max-height` transition technique animates the *ceiling*
+  value, not the actual content height; a row shorter than its ceiling (e.g.
+  a collapsed PresetsPanel under its 32rem ceiling) will visually snap in the
+  tail portion of the transition rather than shrinking proportionally
+  throughout. Documented as a browser-verification item (FINDINGS F22) rather
+  than silently switching to the fade-then-unmount fallback the plan allowed —
+  that fallback is the documented next step if this reads janky in the browser.
+  Rejected alternative: plain conditional unmount of the collapsible rows —
+  produces an instant `.app-top` height snap (the exact "reader jump" #38
+  forbids, most visible as an RSVP word jump rather than a glide).
+
+- **D88 · `PacerControls` stays mounted across the HUD switch; `compact` is a
+  prop, not a remount; the progress-bar/% elements are hoisted to a shared
+  JSX position; WPM keeps a live compact slider (number field dropped); the
+  scrubber and Word field are dropped entirely during playback (not just
+  visually hidden).** *User direction, resolving the plan's open questions.*
+  `PacerControls` already owns an imperative `pacer.subscribe` writing into
+  `fillRef`/`pctRef` — swapping to a *separate* HUD component would tear that
+  subscription down and re-init it across every play/pause, causing a visible
+  progress-bar flash/reset at exactly the transition boundary. Instead
+  `compact={pacer.playing}` is passed straight into the existing component,
+  which conditionally renders only the surrounding fields. The `pctRef` span
+  previously lived inside the (now-conditional) Word-field `<label>`; it's
+  hoisted to an unconditional position immediately after the transport buttons
+  so it renders at the same JSX slot regardless of `compact`, and the
+  subscription's `if (pctRef.current)` write is never aimed at a torn-down
+  node. **WPM:** the range slider is common to both layouts (same JSX
+  position, `pacer-wpm-compact` class only changes its width) so WPM stays
+  live-adjustable while playing; the number field is dropped in compact mode
+  since (a) it's one of the #38 trap fields and (b) removing the number entry
+  while keeping the slider satisfies "get out of the way" without losing live
+  control. Rejected alternative: a read-only WPM readout — considered in the
+  original plan, but the user chose to keep it live-adjustable; a range input
+  is Space-safe per D86, so it introduces no new trap. **Scrubber + Word
+  field:** dropped entirely while playing (not CSS-hidden-but-present) — the
+  HUD shows only the read-only progress bar/%; seeking during playback stays
+  available via arrow-key transport and click-to-seek on a reader word
+  (unaffected, delegated handlers). Rejected alternative: keep the scrubber
+  visible but disabled — out of scope per the user's explicit "dropped"
+  instruction, and a disabled range control still occupies HUD space the
+  minimalism goal is trying to reclaim.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

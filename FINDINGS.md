@@ -45,6 +45,10 @@ should be re-confirmed before the port (or anyone) relies on it:
 - **Outstanding browser-test tails** — F13/F14/F15 (felt centering/overlap), F19,
   F20, F21, and F-PRESETS-4 each close with a browser-test checklist that is still
   open.
+- **F22** ❓ — the entire visual/interactive half of the #38 HUD fix (collapse
+  smoothness, RSVP glide-not-jump, no re-wrap, continuous progress bar, no
+  double-toggle on the play button, the paused→play Space repro) is unverified
+  by anything but static analysis; only the Space-routing predicate itself is ✅.
 
 ---
 
@@ -452,6 +456,8 @@ PR description / issue thread.
 
 ### F22 — Minimal HUD + space-bar pause trap (issue #38): predicate ✅, build 🧪, everything visual/interactive ❓
 
+Two deliverables, two very different confidence levels.
+
 **The Space-routing predicate is ✅ unit-verified against the real shipped
 code**, not a hand-copied restatement of it. `src/pacer/headless-test.mjs`
 esbuild-bundles the actual `src/pacer/keyboard.ts` (`bundle: false, write:
@@ -466,16 +472,42 @@ proves the routing logic, though it stubs DOM elements as plain
 `{ tagName, type }` objects rather than exercising a real `KeyboardEvent` in a
 real document.
 
-**What's ❓ — genuinely unverified, not just under-tested:**
+**`npm run build` (`tsc -b` + `vite build`) is 🧪 clean** — no type errors from
+the new `compact` prop, the conditional JSX, or the CSS additions (CSS isn't
+type-checked, but the build pipeline processing it without erroring is the
+extent of what a clean build proves here).
+
+**Everything else is ❓ — genuinely unverified, not just under-tested:**
 - The reported repro itself: play → focus/change the WPM field → Space now
   pauses, in all three modes (flowing/RSVP/chunk).
-- Paused→play from a focused WPM field via Space.
+- Paused→play from a focused WPM field via Space (the direction Part A's HUD
+  collapse does *not* cover, since the WPM field is present while paused).
 - No double-toggle when the play button has focus and Space is pressed (the
   D40 regression check — the predicate says this is safe, but a synthetic
   click racing a keydown handler in a real browser is exactly the kind of
   thing that can surprise).
 - Typing a literal space into the PresetsPanel save/rename name field still
   inserts a space rather than pausing the pacer.
+- HUD collapse smoothness — whether the `max-height`-ceiling technique (D87)
+  reads as a smooth shrink or snaps visibly in the tail of the transition for
+  rows much shorter than their ceiling (most realistic case: `.mode-settings`
+  and `.reader-toolbar-controls` at their default un-expanded heights, well
+  under the 6rem ceiling).
+- The progress bar/% staying visually continuous (no flash/reset) across the
+  play/pause boundary — this follows from the code (same mounted node, same
+  subscription, per D88) but was never watched happen.
+- RSVP's centered word gliding down rather than jumping as `.app-top` shrinks
+  — the flexbox mechanics (`.rsvp-stage { flex: 1; justify-content: center }`)
+  guarantee it moves in lockstep with the collapse *by construction*, which is
+  a stronger basis for confidence than most 📐 entries in this file, but it is
+  still an inference, not a screen recording.
+- Flowing/chunk text genuinely not re-wrapping and `scrollTop` genuinely being
+  preserved through the transition (same reasoning: structurally guaranteed
+  by pane width being untouched, not watched).
+- Arrow-key seek and click-to-seek continuing to work while the HUD is
+  collapsed (nothing in the collapse touches the keydown handler or the
+  reader's delegated click handler, but "nothing touches it" is a code-reading
+  claim, not a browser observation).
 
 (2026-07-09, feature/reading-hud-and-spacebar-fix)
 
@@ -489,6 +521,8 @@ real document.
   "Post-V1 techniques" block (F12–F16). IDs are assigned chronologically, not by
   file position; check the highest existing number before adding one so an
   F12-style collision doesn't recur.
+- **F22** added (2026-07-09, issue #38): Space-routing predicate ✅, build 🧪,
+  HUD collapse/RSVP-glide/no-re-wrap/no-double-toggle ❓ pending browser test.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 

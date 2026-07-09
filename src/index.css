@@ -317,6 +317,42 @@ button:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.pacer-wpm-compact {
+  width: 7rem;
+}
+
+/* Minimal HUD during playback (issue #38, D87/D88). These rows collapse via
+   max-height/opacity while the pacer plays; only .app-top's HEIGHT shrinks —
+   .reader-pane's width is untouched, so flowing/chunk text never re-wraps and
+   scrollTop is preserved (see ARCHITECTURE §12). max-height ceilings below are
+   generous-but-bounded per row (the standard CSS collapse technique): a row
+   shorter than its ceiling will visually snap in the last portion of the
+   transition rather than shrinking proportionally the whole time — flagged as
+   a known caveat to confirm/tune in the browser, not silently avoided. */
+.app-top .reader-toolbar-controls,
+.app-top .mode-settings,
+.app-top .presets-panel,
+.app-top .kbd-hint {
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 220ms ease, opacity 160ms ease, margin-top 220ms ease;
+}
+
+.app-top .reader-toolbar-controls { max-height: 6rem; }
+.app-top .mode-settings { max-height: 6rem; }
+.app-top .presets-panel { max-height: 32rem; }
+.app-top .kbd-hint { max-height: 2rem; }
+
+.app-top.playing .reader-toolbar-controls,
+.app-top.playing .mode-settings,
+.app-top.playing .presets-panel,
+.app-top.playing .kbd-hint {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  pointer-events: none;
+}
+
 /* Per-mode settings (formalized in M5) */
 .mode-settings {
   margin-top: 0.6rem;

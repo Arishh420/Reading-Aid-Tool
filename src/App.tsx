@@ -297,7 +297,7 @@ export default function App() {
 
       {phase === 'reading' && doc && (
         <>
-          <div className="app-top">
+          <div className={`app-top${pacer.playing ? ' playing' : ''}`}>
             <div className="reader-toolbar">
               <div className="reader-title-row">
                 <button
@@ -340,6 +340,7 @@ export default function App() {
               count={words.length}
               wpm={wpm}
               onWpmChange={setWpm}
+              compact={pacer.playing}
             />
 
             <ModeSettings

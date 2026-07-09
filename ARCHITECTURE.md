@@ -381,10 +381,40 @@ The pacer is always alive, but its keyboard handler is gated to the `reading` ph
   laid-out reader reads them. A `layoutKey` (derived from those values) is passed
   to the in-place modes so the overlay/highlight reposition when typography
   changes the layout (the same way they react to a bionic toggle or resize).
-- **Keyboard transport (M7):** a window `keydown` handler gives Space
-  (play/pause), ←/→ (step word), Home (restart) — ignored while a control
-  (input/select/textarea/button) is focused so it doesn't double-fire or hijack
-  native keys.
+- **Keyboard transport (M7; Space routing refined in issue #38, D86):** a
+  window `keydown` handler gives Space (play/pause), ←/→ (step word), Home
+  (restart). Arrows/Home still yield to any focused
+  input/select/textarea/button (unchanged — don't hijack a slider/select).
+  **Space is routed separately, through the pure predicate
+  `spaceTogglesFrom` (`src/pacer/keyboard.ts`): it toggles the pacer
+  regardless of focus, *except* when the focused element is a `BUTTON`
+  (native click already toggles — re-handling would double-fire, per D40),
+  `SELECT`, `TEXTAREA`, or a text-type `INPUT`.** A focused `INPUT[type=number]`
+  or `INPUT[type=range]` (WPM, Word, scrubber) does **not** yield — Space is
+  inert there, so claiming it closes the #38 focus-trap bug (pressing Space
+  after editing WPM previously did nothing). This predicate is portable (no
+  DOM deps beyond reading `tagName`/`type`) and unit-tested headlessly against
+  the real bundled module (FINDINGS F22).
+- **Minimal HUD during playback (issue #38, D87/D88):** while `pacer.playing`,
+  `.app-top` gets a `.playing` class that collapses the settings-heavy rows
+  (`Settings`/`ThemeSelector` row, `PresetsPanel`, `ModeSettings`, the keyboard
+  hint) via a CSS `max-height`/opacity transition — pure CSS, no conditional
+  unmount, so there's no separate HUD component. `PacerControls` itself stays
+  mounted across the switch; a `compact` prop (`= pacer.playing`) swaps its
+  internal JSX to a reduced layout (transport + a live WPM range slider +
+  read-only progress; the WPM number field, Word field, and scrubber are
+  dropped). The progress-bar-fill and `%` elements render in the *same* JSX
+  position in both layouts specifically so the imperative `pacer.subscribe`
+  write (§5) is never aimed at a torn-down/remounted node. Because
+  `.app-top` is `flex: none` and the reader area is `flex: 1` in a fixed-height
+  column, this collapse changes **`.app-top`'s height only** — reader pane
+  *width* (and thus reading-column wrap) is untouched, so flowing/chunk text
+  never re-wraps and `scrollTop` is preserved; RSVP's centered stage grows
+  into the reclaimed space via ordinary flexbox centering, so the flashed word
+  glides rather than jumps. **This is deliberately not routed through
+  `layoutKey`** (unlike the bionic/text-size/line-width changes above) —
+  `layoutKey` exists to trigger reposition when typography can change word
+  *wrapping*, and this collapse structurally cannot affect wrapping.
 - **Empty/error states:** parse failures (incl. the scanned-PDF message) surface
   via the file-input error slot; a parsed document with zero blocks is rejected
   with "No readable text was found."
@@ -411,6 +441,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `model/blocks.ts` | flat-word-index → block lookup (binary search) |
 | `pacer/dwell.ts` | dwell multipliers |
 | `pacer/usePacer.ts` | clock: timing, dwell, ≤1/frame clamp, chunk stepping, pub/sub (rAF & React exist in RN) |
+| `pacer/keyboard.ts` | `spaceTogglesFrom` — which focused element types Space should toggle the pacer from (issue #38) |
 | mode *logic* (lead/chunk index math, `firstWordlikeFrom`) | which words to highlight |
 | theme token *values* | the color sets |
 | `storage/storage.ts` | `storageGet/Set/Remove` wrapper — swap to AsyncStorage / MMKV on RN |
@@ -472,3 +503,13 @@ Markdown parser is portable.
   (atomic batch), `isModified` derived comparison, user-preset handlers. Storage
   key `readingaid_v1:presets`. Portable: `presets.ts`; web-coupled:
   `PresetsPanel.tsx`.
+- **Minimal HUD + space-bar pause-trap fix** (issue #38, 2026-07-09): new
+  portable `pacer/keyboard.ts` (`spaceTogglesFrom` predicate) narrows the M7
+  keyboard handler's Space case so it toggles the pacer from a focused
+  WPM/Word/scrubber field while still yielding to buttons/selects/textareas/
+  text inputs (D86); `PacerControls.tsx` gains a `compact` prop rendering a
+  reduced HUD without unmounting (D88); `App.tsx`/`index.css` collapse the
+  settings-heavy `.app-top` rows via a `.playing`-driven CSS `max-height`/
+  opacity transition, deliberately outside the `layoutKey` mechanism (D87).
+  Portable: `pacer/keyboard.ts`. Web-coupled: the CSS collapse and the
+  `compact` layout branch in `PacerControls.tsx`.
