@@ -17,7 +17,11 @@ import { storageGet, storageSet } from './storage';
 
 export interface PositionSnapshot {
   wordIndex: number;
-  /** 0–1, stored for display only — recomputed from wordIndex on restore. */
+  /**
+   * 0–1. Display-only when wordCount matches on restore. If wordCount has
+   * drifted (re-tokenization since save), this becomes the source of truth
+   * the resume index is recomputed from, not wordIndex (issue #48).
+   */
   percent: number;
   savedAt: number; // epoch ms
 }

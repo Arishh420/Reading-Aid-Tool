@@ -376,6 +376,15 @@ current app phase (`idle | resume-prompt | reading`). It builds `words` and `dwe
 recognised by fingerprint and has a saved position); `reading` → the full reader.
 The pacer is always alive, but its keyboard handler is gated to the `reading` phase.
 
+- **Resume drift guard (issue #48, D92):** `handleResume` compares the chosen
+  `BookRecord.wordCount` against the live `words.length` before seeking. If a
+  parser change re-tokenized the same file bytes since the position was saved,
+  the fingerprint still matches but the raw `wordIndex` no longer points at the
+  right word — so on a mismatch the target is recomputed from the snapshot's
+  `percent` (`round(percent · (words.length − 1))`) instead of the stale raw
+  index; on a match, behavior is unchanged. Both paths clamp to
+  `[0, words.length − 1]`. `handleResume` therefore takes the full
+  `PositionSnapshot` (needs `percent`), not a bare `wordIndex`.
 - **Reader typography (M7):** font size and line width are applied as CSS
   variables (`--reader-font-size`, `--reading-width`) on the app shell; the
   laid-out reader reads them. A `layoutKey` (derived from those values) is passed
@@ -556,3 +565,11 @@ Markdown parser is portable.
   whitespace-flanked-asterisk, and escape-order corruption (D91). Both in the
   portable layer (`parsers/markdown.ts`). 15/15 headless-verified against the
   real bundled parser (FINDINGS F24).
+- **Resume-drift bug-fix** (issue #48, 2026-07-10): `handleResume` (`App.tsx`)
+  now compares the saved `BookRecord.wordCount` against the live
+  `words.length` and falls back to resuming by the snapshot's `percent` when
+  they differ (a re-tokenization since the position was saved), instead of
+  seeking to a raw `wordIndex` that may now point at the wrong word (D92);
+  `ResumePrompt.tsx`'s `onResume` callback now passes the full
+  `PositionSnapshot` rather than a bare index. Pure logic in `App.tsx`;
+  14/14 headless-verified (FINDINGS F26).

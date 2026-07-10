@@ -743,6 +743,62 @@ EPUB variety).
 
 ---
 
+### F26 — Resume drift-detection → percent fallback: pure mapping ✅ unit-verified; UI/pacer path ❓ unwatched
+
+Issue #48 (adversarial-audit finding, not a user repro): `BookRecord.wordCount`
+was captured on save but never compared to the live `words.length` on restore.
+The fix (`handleResume` in `App.tsx`, D92) now branches on that comparison —
+non-drift resumes at the saved `wordIndex` unchanged; on drift it recomputes
+`round(percent · (words.length − 1))`, then clamps to `[0, words.length − 1]`
+on both paths.
+
+**What was actually run, not just reasoned about:** 4 new Node.js checks
+(#11–14) appended to the existing `src/storage/headless-test.mjs` (which
+already covers the reading-position persistence invariants — see F20; the
+suite is now 14 checks total, run via `node src/storage/headless-test.mjs`).
+The pure mapping was **inlined into the test file** the same way the rest of
+that file already inlines `readingPosition.ts`'s logic (per that file's own
+header comment: a `.mjs` script can't import the `.ts` source without a build
+step) — `resolveResumeTarget(recordWordCount, snapshot, currentWordCount)`
+mirrors `handleResume`'s branch-and-clamp logic verbatim:
+
+11. **No drift** (`recordWordCount === currentWordCount`) → target is the raw
+    `snapshot.wordIndex`, unchanged (byte-for-byte parity with pre-#48
+    behavior, per the task's own constraint).
+12. **Drift** (`recordWordCount !== currentWordCount`) → target is
+    `round(percent · (len − 1))`, and is asserted **not equal** to the stale
+    raw `wordIndex` in the test case (a 10,000-word save re-parsed to 8,000
+    words at 42 % lands at word 3360, not the stale 4200).
+13. **Clamp, low end** — a drifted record with `percent: 0` resolves to `0`.
+14. **Clamp, high end, both paths** — a drifted record with `percent: 1`
+    resolves to `len - 1`; separately, a deliberately corrupted snapshot
+    (`percent: 1.5`, `wordIndex: 99999` — values that should never occur from
+    real `saveReadingPosition` output, but guard against a hand-edited or
+    future-format localStorage record) is clamped to `len - 1` on **both** the
+    drift and non-drift branches, confirming the final
+    `Math.max(0, Math.min(target, len - 1))` clamp is unconditional and not
+    accidentally skipped on the non-drift path.
+
+*Verified:* ✅ 14/14 headless (10 pre-existing + 4 new). 🧪 `npm run build`
+(`tsc -b && vite build`) clean after the `App.tsx`/`ResumePrompt.tsx` changes
+(the `onResume` callback signature changed from a bare `wordIndex: number` to
+the full `PositionSnapshot`, since the drift branch needs `percent`, which a
+bare index can't carry).
+
+**Not verified — same class of gap as F20's own list:** whether a real
+tokenization drift (e.g. reloading a book after one of the D90/D91 markdown
+fixes actually shipped) triggers the resume-prompt UI and lands the pacer at
+the expected word in a live browser; whether the `console.info` dev log
+actually fires and reads sensibly in a real console; whether `pacer.seek()`
+correctly applies the recomputed index across all three modes. These require
+the same browser pass F20 already flagged as outstanding for the rest of the
+reading-position feature — this fix rides on that same unverified surface,
+it doesn't add a new one.
+
+(2026-07-10, fix/resume-wordcount-drift)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -765,10 +821,14 @@ EPUB variety).
   regexes compile and execute correctly against two real Hermes binaries
   (bytecode v84 and v96) — empirical, not a docs lookup. `markdown.ts`
   unchanged; still `[PORTABLE]`.
+- **F26** added (2026-07-10, issue #48): resume drift-detection → percent
+  fallback pure mapping, 4 new headless checks (14/14 total in
+  `src/storage/headless-test.mjs`). UI/pacer path still ❓, same as the rest
+  of F20's outstanding browser-test list.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
-Ten Node.js checks in `src/storage/headless-test.mjs` (run `node src/storage/headless-test.mjs`) confirmed all of the following:
+Ten Node.js checks in `src/storage/headless-test.mjs` (run `node src/storage/headless-test.mjs`) confirmed all of the following. (The same file later grew 4 more checks for the resume drift-detection fix — see F26.)
 
 1. **History caps at 5, oldest dropped.** The `[snapshot, ...history].slice(0, 5)` pattern enforces the cap exactly.
 2. **>2 % gate suppresses redundant history entries.** A save at wordIndex 1 (0.01 % into a 10 000-word book) does not append a new history entry when the last history percent is 0 %.

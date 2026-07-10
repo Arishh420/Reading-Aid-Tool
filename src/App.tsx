@@ -29,7 +29,12 @@ import {
   DEFAULT_CHUNK,
   type ChunkSettings,
 } from './pacer/modes/ChunkHighlight';
-import { loadBookRecord, saveReadingPosition, type BookRecord } from './storage/readingPosition';
+import {
+  loadBookRecord,
+  saveReadingPosition,
+  type BookRecord,
+  type PositionSnapshot,
+} from './storage/readingPosition';
 import {
   bundlesEqual,
   createUserPreset,
@@ -234,9 +239,24 @@ export default function App() {
   // When the user chooses Resume from the interstitial, the pacer has already
   // been reset to 0 (that happened when doc/words changed in handleLoad). We
   // can seek directly — no deferred ref needed.
-  function handleResume(wordIndex: number) {
-    // Guard against a stale record whose index exceeds the current word count.
-    const safe = wordIndex < words.length ? wordIndex : 0;
+  function handleResume(snapshot: PositionSnapshot) {
+    const len = words.length;
+
+    // If the saved wordCount no longer matches the current parse (e.g. a
+    // parser change re-tokenized the same file bytes), the raw wordIndex may
+    // point at the wrong word even though the fingerprint still matched.
+    // Fall back to the saved percent, which is still meaningful (issue #48).
+    let target: number;
+    if (resumeRecord && resumeRecord.wordCount !== len) {
+      target = len > 1 ? Math.round(snapshot.percent * (len - 1)) : 0;
+      console.info(
+        `[resume] wordCount drift detected (saved ${resumeRecord.wordCount}, current ${len}) — resuming by percent (${Math.round(snapshot.percent * 100)}%) at word ${target} instead of raw index ${snapshot.wordIndex}`,
+      );
+    } else {
+      target = snapshot.wordIndex;
+    }
+
+    const safe = Math.max(0, Math.min(target, len - 1));
     pacer.seek(safe);
     setPhase('reading');
   }

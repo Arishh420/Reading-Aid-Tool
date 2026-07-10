@@ -14,7 +14,7 @@ function relativeTime(epochMs: number): string {
 
 interface ResumePromptProps {
   record: BookRecord;
-  onResume: (wordIndex: number) => void;
+  onResume: (snapshot: PositionSnapshot) => void;
   onStartOver: () => void;
 }
 
@@ -44,7 +44,7 @@ export function ResumePrompt({ record, onResume, onStartOver }: ResumePromptProp
         </p>
 
         <div className="resume-actions">
-          <button type="button" onClick={() => onResume(latest.wordIndex)}>
+          <button type="button" onClick={() => onResume(latest)}>
             Resume at {pct}%
           </button>
           <button type="button" className="secondary" onClick={onStartOver}>
@@ -68,7 +68,7 @@ export function ResumePrompt({ record, onResume, onStartOver }: ResumePromptProp
                     <button
                       type="button"
                       className="secondary"
-                      onClick={() => onResume(snap.wordIndex)}
+                      onClick={() => onResume(snap)}
                     >
                       {Math.round(snap.percent * 100)}%
                       <span className="muted small"> — {relativeTime(snap.savedAt)}</span>
