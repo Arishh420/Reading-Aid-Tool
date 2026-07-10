@@ -1034,6 +1034,52 @@ why*, for anyone reading the superseded text.
   Porting notes). This does not resolve or touch the separate, still-open
   question of whether the pacer should auto-restart at end-of-document
   (F23/D89) — that remains undecided and is tracked as its own issue.
+  **(Resolved by D96 — kept disabled, no auto-restart.)**
+
+## Product decision — Play/Space auto-restart at end-of-document (issue #64)
+
+- **D96 · Play/Space stays disabled at end-of-document; no auto-restart.**
+  *Product decision, closing the open question first flagged in D89/F23
+  (2026-07-09) and reaffirmed still-unresolved by F30/F31 (2026-07-10).*
+  Resolves issue #64 by choosing **option 1** of the two the issue laid out:
+  Play/Space remains inert (button `disabled`) once `atEnd` is true, and the
+  always-visible **↺ Restart** button is the explicit gesture to replay from
+  the beginning — not auto-restart-on-Play/Space. This is documentation of
+  already-shipped behavior: `play()`/`toggle()` in `src/pacer/usePacer.ts`
+  already implement exactly this (guard `if (atEndRef.current &&
+  startedRef.current) return;` in `play()`, and the mirrored `canStart =
+  !atEndRef.current || !startedRef.current` in `toggle()`), and
+  `PacerControls.tsx` already renders `↺ Restart` unconditionally alongside a
+  `disabled={pacer.atEnd && !pacer.playing}` Play/Pause button. **No source
+  file changes accompany this entry** — the F30 (issue #18) and F31 (issue
+  #49) fixes had already independently preserved this exact behavior while
+  explicitly declining to decide it; this entry is the decision that confirms
+  what they preserved was correct, not a new implementation.
+
+  **Rationale:**
+  (a) **Play means "start/resume from here" everywhere else in this app** —
+  seeking, resuming a persisted position (issue #6), and pressing Play after
+  a pause all continue from the current index. Auto-restart-on-Play would be
+  the one place Play silently means "start over," inverting user expectation
+  built up by every other interaction with the button.
+  (b) **Unsafe on long/EPUB documents (D95).** A stray Space press at the end
+  of a book-length document would discard the reader's place with no
+  confirmation — exactly what the issue #6 reading-position persistence
+  system (D67–D76) exists to protect against. Auto-restart would silently
+  fight a feature already shipped for the opposite purpose.
+  (c) **Retention re-reading is already served by the explicit Restart
+  button.** A reader who wants to re-read from the top has a one-click,
+  unambiguous affordance (↺ Restart); nothing is gained by overloading Play
+  with the same action implicitly.
+  (d) **The original "looks broken" defect was a styling gap, not a behavior
+  gap** — F23/D89 traced bug #4 (issue #38 QA round) to the Play/Pause button
+  having no visible `:disabled` styling, so an inert-but-correct button read
+  as broken. That was fixed in the same pass (`button:disabled { opacity:
+  0.5; cursor: not-allowed; }`); the disabling behavior itself was never the
+  problem.
+
+  Alternative rejected: auto-restart Play/Space at end-of-document (option 2
+  in issue #64) — rejected for the reasons above, primarily (a) and (b).
 
 ## Appendix — Log meta
 
