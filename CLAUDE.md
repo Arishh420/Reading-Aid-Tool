@@ -8,8 +8,9 @@ Never commit on `main`. Before ANY code change, confirm the branch
 its own branch off an up-to-date main
 (`git checkout main && git pull && git checkout -b <name>`). If a change doesn't
 fit the current branch's purpose, STOP and flag it — it belongs on its own branch;
-don't pile unrelated work on. Never commit or push without explicit sign-off:
-propose first, I review in the browser. Naming: `feature/<name>`, `fix/<name>`.
+don't pile unrelated work on. Never stage, commit, or push — I run all git-write
+operations myself in the terminal. Propose the change, show the diff, and stop
+there. Naming: `feature/<name>`, `fix/<name>`.
 
 ## 2. Docs are part of "done"
 A change isn't complete until the docs reflect it. Update the relevant one(s);
