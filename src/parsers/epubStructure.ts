@@ -67,7 +67,8 @@ function attr(tag: string, name: string): string | undefined {
 /** From META-INF/container.xml, the path to the OPF package document. */
 export function parseContainerOpfPath(xml: string): string | undefined {
   const m = /<rootfile\b[^>]*>/i.exec(xml);
-  return m ? attr(m[0], 'full-path') : undefined;
+  const fullPath = m ? attr(m[0], 'full-path') : undefined;
+  return fullPath ? safeDecodeHref(fullPath) : undefined;
 }
 
 /**

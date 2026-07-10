@@ -848,6 +848,60 @@ still misparse in other ways) is unchanged by this fix.
 
 ---
 
+### F28 — EPUB container.xml full-path decode gap: same D62/#11 root cause recurring at a second call site ✅ headless-verified
+
+Issue #47 (adversarial-audit finding, not a user repro): D62's fix for #11
+applied `safeDecodeHref` to spine item hrefs in `parseOpfSpine`
+(`epubStructure.ts:99`), but `parseContainerOpfPath` (`epubStructure.ts:68-71`)
+— which extracts `container.xml`'s `full-path` attribute pointing at the OPF
+itself — returned the raw, still-percent-encoded attribute value. That value
+flows straight into `epub.ts:29-32`'s `zip.file(opfPath)` lookup with no
+decode step in between, so a percent-encoded `full-path` (e.g.
+`full-path="OEBPS%2Fcontent.opf"`, or one containing `%20`) failed the zip
+lookup and threw `"Not a valid EPUB — could not locate the package
+document."` — the exact URI-decoding mismatch D62 fixed, just one call site
+earlier in the pipeline (before the OPF is even read, rather than while
+reading its manifest). Unlike #11, this fails loudly with a clear error
+rather than silently dropping a chapter, which is why it was filed as a
+lower-severity issue.
+
+**Fix:** `parseContainerOpfPath` now wraps the extracted `full-path` attribute
+in the existing `safeDecodeHref` before returning it — no changes to
+`safeDecodeHref` itself or to `parseOpfSpine`'s existing decode call.
+
+**What was actually run, not just reasoned about:** a temporary Node script
+(esbuild-bundles the real `src/parsers/epub.ts` — which pulls in
+`epubStructure.ts` and `model/tokenize.ts` — and imports the actual compiled
+`parseEpub`, not a hand-copied restatement; run temporarily from inside the
+repo at `src/parsers/.tmp-verify-47.mjs` so Node resolves `esbuild`/`jszip`
+from `node_modules`, then deleted — not committed, same pattern F27 used).
+Unlike F27 (which called `parseOpfSpine` directly), this test builds a real
+in-memory EPUB via `JSZip` and drives `parseEpub()` end-to-end, so it
+exercises the actual `zip.file(opfPath)` call site named in the issue, not
+just the pure-function return value:
+
+1. **`%2F`-encoded full-path** (`full-path="OEBPS%2Fcontent.opf"`, OPF stored
+   in the zip at the literal decoded path `OEBPS/content.opf`) — `parseEpub`
+   resolves the OPF and returns the expected single-paragraph document
+   (previously would have thrown "could not locate the package document").
+2. **`%20`-encoded (space) full-path** (`full-path="OEBPS/My%20Book.opf"`,
+   stored at `OEBPS/My Book.opf`) — resolves correctly.
+3. **Regression** — a plain, non-encoded `full-path` still resolves.
+
+All 3 passed. 🧪 `npm run build` (`tsc -b && vite build`) clean after the fix —
+71 modules transformed, no type errors.
+
+**Not verified — same caveat as F27/F7 (EPUB parsing generally):** this
+confirms the fix against synthetic container.xml/OPF strings covering the
+issue's exact repro shape; it has not been exercised against a real-world
+EPUB file loaded through the browser UI, and the broader EPUB-variety caveat
+in F7 (only `h1–h6`/`p`/`li`/`blockquote` captured, DRM unsupported, malformed
+markup may still misparse in other ways) is unchanged by this fix.
+
+(2026-07-10, fix/epub-container-opf-decode)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -878,6 +932,11 @@ still misparse in other ways) is unchanged by this fix.
   decoy-attribute repro + manifest-miss warning, 5/5 headless-verified
   against the real bundled `epubStructure.ts`. Real-world EPUB variety still
   unverified, same caveat as F7.
+- **F28** added (2026-07-10, issue #47): EPUB `container.xml` full-path decode
+  gap — same D62/#11 root cause recurring at `parseContainerOpfPath`, a
+  second call site; 3/3 headless-verified end-to-end via the real bundled
+  `parseEpub`. Real-world EPUB variety still unverified, same caveat as
+  F7/F27.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
