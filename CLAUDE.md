@@ -2,15 +2,21 @@
 
 Standing instruction. Follow every session without being re-asked.
 
-## 1. Branch before changing code — always
-Never commit on `main`. Before ANY code change, confirm the branch
-(`git branch --show-current`). If on `main`, STOP and say so — a new change needs
-its own branch off an up-to-date main
-(`git checkout main && git pull && git checkout -b <name>`). If a change doesn't
-fit the current branch's purpose, STOP and flag it — it belongs on its own branch;
-don't pile unrelated work on. Never stage, commit, or push — I run all git-write
-operations myself in the terminal. Propose the change, show the diff, and stop
-there. Naming: `feature/<name>`, `fix/<name>`.
+## 1. Branch and issue context — confirm and report, always
+Never commit on `main`. Before ANY code change:
+- Confirm the branch (`git branch --show-current`). If on `main`, STOP and say so —
+  a new change needs its own branch off an up-to-date main
+  (`git checkout main && git pull && git checkout -b <name>`).
+- If the task references a GitHub issue, run `gh issue view <number>` (including
+  comments) before doing anything else — a pasted summary may be stale.
+- State both confirmations explicitly at the top of your response — branch name,
+  and issue number plus anything that changed since the pasted summary. A check
+  that isn't reported is indistinguishable from a check that didn't happen.
+
+If a change doesn't fit the current branch's purpose, STOP and flag it — it belongs
+on its own branch; don't pile unrelated work on. Never stage, commit, or push — I
+run all git-write operations myself in the terminal. Propose the change, show the
+diff, and stop there. Naming: `feature/<name>`, `fix/<name>`.
 
 ## 2. Docs are part of "done"
 A change isn't complete until the docs reflect it. Update the relevant one(s);

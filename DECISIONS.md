@@ -943,6 +943,45 @@ why*, for anyone reading the superseded text.
   unchanged — `target = snapshot.wordIndex` — so this is a threading change,
   not a behavior change, for every book whose tokenization hasn't shifted.
 
+## Bug-fix — EPUB attr() missing name boundary causes silent chapter loss (issue #43)
+
+- **D93 · `attr()` requires a boundary before the attribute name; manifest-miss
+  now warns, mirroring D63's format.** *Adversarial-audit finding (issue #43),
+  upgrading the previously-logged #22 attr() suffix quirk from cosmetic to a
+  silent chapter-loss path.* `attr(tag, name)`'s regex
+  (`` `${name}\\s*=\\s*(...)` ``) matched `name` as a bare substring anywhere in
+  the tag, with no check for what preceded it. On
+  `<item data-id="wrong" id="ch1" href="c1.xhtml">`, `attr(tag, 'id')` matched
+  the `id` inside `data-id="wrong"` — the first substring occurrence — and
+  returned `"wrong"` instead of the real `id="ch1"`. `parseOpfSpine`'s
+  `manifest.get(idref)` then missed (the manifest was keyed under `"wrong"`,
+  never `"ch1"`), and the `itemref` entry was dropped by a bare `continue`
+  with no signal — a whole chapter silently vanished from the spine on an
+  otherwise well-formed OPF. Fix: prefixed the regex with a non-capturing
+  boundary, `(?:^|[\s"'])`, requiring the attribute name to start at the tag's
+  beginning or be preceded by whitespace or a quote character (the latter
+  covers a malformed-but-real-world tag like `id="x"href="y"` with no space
+  between attributes). The boundary group is non-capturing, so the existing
+  capture-group indices (`m[2]` double-quoted value, `m[3]` single-quoted
+  value) are unchanged — verified by hand-tracing the repro (`-` precedes the
+  decoy `id` in `data-id`, which fails the boundary and is skipped; the real
+  `id` is preceded by whitespace and matches) and by a single-quoted-attribute
+  regression check confirming group extraction still resolves correctly.
+  Separately, the manifest-miss branch (`if (!item) continue;`, line 90) now
+  logs `` console.warn(`[epub] manifest item not found for idref: "${idref}" —
+  chapter skipped`) `` before continuing, mirroring D63's exact message shape
+  for the sibling zip-lookup-miss warning in `epub.ts`, so this feeds the same
+  eventual user-facing surfacing work tracked in issue #26. The already-
+  intentional idref-absent path (`if (!idref) continue;`, line 88 — the
+  `itemref` tag simply has no `idref` attribute at all, a different and
+  already-silent-by-design case) was left untouched, as scoped.
+  Alternative rejected: anchoring on `[\s]` only (no quote character in the
+  boundary set) — narrower, and would miss the same silent-shadowing bug for
+  a tag with no space between adjacent attributes (`id="x"href="y"`), which is
+  invalid but not rare in hand-edited or poorly-generated EPUBs; the wider
+  `[\s"']` set costs nothing since `"`/`'` can never legitimately precede an
+  attribute name in well-formed markup either. Fixes #43.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

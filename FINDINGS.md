@@ -799,6 +799,55 @@ it doesn't add a new one.
 
 ---
 
+### F27 — EPUB attr() name-boundary fix: repro + manifest-miss warning 🧪 headless-verified
+
+Issue #43 (adversarial-audit finding, not a user repro): `attr(tag, name)`'s
+regex matched `name` as a bare substring with no boundary check, so a decoy
+attribute sharing a suffix with the real one (`data-id` vs `id`) silently
+resolved to the wrong value — `manifest.get(idref)` then missed and the
+`itemref` entry was dropped by a bare `continue` with zero warning, a whole
+chapter vanishing from an otherwise well-formed OPF. See D93 for the fix
+(non-capturing `(?:^|[\s"'])` boundary prefix + a `console.warn` on the
+manifest-miss branch, mirroring D63's message shape).
+
+**What was actually run, not just reasoned about:** a 5-check Node.js script
+(esbuild-bundles the real `src/parsers/epubStructure.ts` — which has no
+project-internal imports, so it bundles standalone — and imports the actual
+compiled `parseOpfSpine`, not a hand-copied restatement; same pattern as
+`src/parsers/headless-test.mjs` for #41/#42, run temporarily from inside the
+repo so Node resolves `esbuild` from `node_modules`, then deleted — not
+committed):
+
+1. **#43 repro** — an OPF with `<item data-id="wrong" id="ch1"
+   href="c1.xhtml">` plus a matching `<itemref idref="ch1">` resolves to
+   `["OEBPS/c1.xhtml"]` (previously would have resolved to `[]`, the
+   manifest keyed under the wrong id).
+2. **Regression** — a normal two-chapter manifest with no decoy attributes
+   still resolves both hrefs in spine order.
+3. **Single-quoted attributes** — the same decoy-shadowing repro with
+   single-quoted attribute values resolves correctly, confirming the added
+   non-capturing boundary group didn't shift `m[2]`/`m[3]` extraction.
+4. **Manifest-miss, resolvable entries preserved** — a spine with one valid
+   `idref` and one `idref` absent from the manifest still returns the valid
+   chapter's href.
+5. **Manifest-miss, warning fires** — `console.warn` (temporarily spied) is
+   called exactly once with `[epub] manifest item not found for idref:
+   "missing-chapter" — chapter skipped`, matching the D63-mirrored format.
+
+All 5 passed. 🧪 `npm run build` (`tsc -b && vite build`) clean after the fix
+— 71 modules transformed, no type errors.
+
+**Not verified — same class of gap as F7 (EPUB parsing generally):** this
+confirms the fix against synthetic OPF strings covering the issue's exact
+repro shape; it has not been exercised against a real-world EPUB file loaded
+through the browser UI, and the broader EPUB-variety caveat in F7 (only
+`h1–h6`/`p`/`li`/`blockquote` captured, DRM unsupported, malformed markup may
+still misparse in other ways) is unchanged by this fix.
+
+(2026-07-10, fix/epub-attr-name-boundary)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -825,6 +874,10 @@ it doesn't add a new one.
   fallback pure mapping, 4 new headless checks (14/14 total in
   `src/storage/headless-test.mjs`). UI/pacer path still ❓, same as the rest
   of F20's outstanding browser-test list.
+- **F27** added (2026-07-10, issue #43): EPUB `attr()` name-boundary fix —
+  decoy-attribute repro + manifest-miss warning, 5/5 headless-verified
+  against the real bundled `epubStructure.ts`. Real-world EPUB variety still
+  unverified, same caveat as F7.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
