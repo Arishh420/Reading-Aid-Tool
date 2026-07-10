@@ -902,6 +902,70 @@ markup may still misparse in other ways) is unchanged by this fix.
 
 ---
 
+### F29 — EPUB unclosed `<p>` yields zero text silently: strict-pass regex needs a matching close tag; additive fallback recovers 🧪 headless-verified
+
+Issue #14 (HIGH; flagged independently by two audit passes, not a user repro):
+`xhtmlToBlocks`'s block regex is backreferenced —
+`/<(h[1-6]|p|li|blockquote)\b[^>]*>([\s\S]*?)<\/\1>/gi` — so it matches only a
+block tag that has a **matching closing tag**. Valid-HTML/invalid-XHTML
+chapters that omit `</p>` (browsers accept this; EPUB technically requires
+well-formed XHTML but real-world files violate it) match **zero** blocks, and
+the chapter's entire text is silently dropped — or the whole book's, if every
+chapter is affected. Reproduced headlessly before the fix: a body of 5
+unclosed `<p>` paragraphs → **0 blocks** (matching the issue's proven "4000
+paragraphs → 0").
+
+**Root cause:** the backreference `<\/\1>` is load-bearing for the strict
+pass's nested-child de-duplication (an outer `<li>` consuming an inner `<p>` so
+a paragraph isn't emitted twice), but it also makes a closing tag mandatory —
+there's no partial match for an opener with no closer.
+
+**Fix (additive, strict pass unchanged):** after the strict pass, if it
+produced **0** blocks and `body.trim()` is non-empty, run a second
+`xhtmlToBlocksFallback` pass that splits on block-level *opening* tags
+(`/<(h[1-6]|p|li|blockquote)\b[^>]*>/gi`) and takes the text from each opener up
+to the next opener (or end of body) as that block's content, stripped via the
+same `stripTags`. If the fallback also yields 0 (e.g. content with no block
+tags at all), current behavior is kept — no third pass. When the fallback
+recovers a chapter it emits `console.warn('[epub] chapter "<href>" used
+unclosed-tag fallback, recovered N block(s)')`, matching the existing `[epub]
+…` warning style (D63/D93), so partial recovery is visible in logs instead of
+throwing. This required threading the chapter `href` into `xhtmlToBlocks` as an
+**optional** second parameter (`xhtmlToBlocks(html, href?)`) purely to name the
+chapter in the warning — backward-compatible, and `epub.ts`'s single call site
+now passes `href`. `reindexWords`/`Block.id` assignment in `epub.ts` is
+untouched; this only changes how `RawBlock[]` is produced per chapter.
+
+**Known gap, deliberately NOT fixed here (follow-up):** the fallback fires only
+when the strict pass yields a **whole-chapter zero**. A body mixing at least one
+properly-closed block tag with several unclosed ones keeps the strict pass's
+`>0` result, so the fallback never runs and the unclosed tails are still
+silently lost — same bug class, smaller (mid-chapter, partial) scope. This pass
+is scoped to the issue's whole-chapter repro as written; partial mid-chapter
+loss is left as a documented follow-up, not silently implied to be fixed. The
+headless suite asserts this behavior is **unchanged** (a closed-then-unclosed
+body still recovers only the closed block) so the gap is on record.
+
+*Verified:* 🧪 12/12 headless checks in
+`src/parsers/epubStructure-headless-test.mjs` (esbuild-bundles the real
+`epubStructure.ts` and calls the actual `xhtmlToBlocks`, same pattern as the
+markdown suite / F27): the #14 repro (5 unclosed `<p>` → 5 correct blocks, was
+0; warning fires once), unclosed heading+paragraphs recovering with
+type/level, the known-gap partial-loss case asserted unchanged (fallback does
+not fire, no warning), empty/whitespace and no-block-tag bodies → 0 with no
+warning, and a well-formed-XHTML regression (strict pass unchanged, nested
+`li>p` not double-counted, fallback never triggered). 🧪 `npm run build`
+(`tsc -b && vite build`) clean — 71 modules transformed, no type errors.
+
+**Not verified — same caveat as F7/F27/F28 (EPUB parsing generally):** confirmed
+against synthetic XHTML strings covering the repro shape; not exercised against
+a real-world unclosed-tag EPUB loaded through the browser UI. The broader
+EPUB-variety caveats in F7 are unchanged by this fix.
+
+(2026-07-10, fix/epub-unclosed-tag-fallback)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -937,6 +1001,13 @@ markup may still misparse in other ways) is unchanged by this fix.
   second call site; 3/3 headless-verified end-to-end via the real bundled
   `parseEpub`. Real-world EPUB variety still unverified, same caveat as
   F7/F27.
+- **F29** added (2026-07-10, issue #14): EPUB unclosed `<p>` yielded zero text
+  silently (strict backreferenced regex needs a matching close tag); additive
+  fallback splits on opening tags when the strict pass yields a whole-chapter
+  zero. 12/12 headless-verified against the real bundled `xhtmlToBlocks`.
+  Partial mid-chapter loss (any closed tag keeps the strict pass) left as a
+  documented follow-up. Real-world EPUB variety still unverified, same caveat
+  as F7/F27/F28.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
