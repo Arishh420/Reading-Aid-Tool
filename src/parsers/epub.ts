@@ -42,7 +42,7 @@ export async function parseEpub(data: ArrayBuffer, title?: string): Promise<Docu
       console.warn(`[epub] spine entry not found in zip: "${href}" — chapter skipped`);
       continue;
     }
-    rawBlocks.push(...xhtmlToBlocks(await entry.async('string')));
+    rawBlocks.push(...xhtmlToBlocks(await entry.async('string'), href));
   }
 
   if (rawBlocks.length === 0) {

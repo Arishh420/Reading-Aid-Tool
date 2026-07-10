@@ -128,8 +128,42 @@ export function resolvePath(baseDir: string, href: string): string {
   return out.join('/');
 }
 
-/** Turn an XHTML content document's body into ordered blocks. */
-export function xhtmlToBlocks(html: string): RawBlock[] {
+function pushBlock(blocks: RawBlock[], tag: string, rawInner: string): void {
+  const text = stripTags(rawInner);
+  if (!text) return;
+  if (tag[0] === 'h') {
+    blocks.push({ type: 'heading', level: Number(tag[1]), text });
+  } else {
+    blocks.push({ type: 'paragraph', text });
+  }
+}
+
+/**
+ * Fallback for valid-HTML/invalid-XHTML bodies whose block tags never close
+ * (e.g. `<p>` without `</p>`), which the strict backreferenced pass can't match
+ * at all — see issue #14. Splits on block-level *opening* tags and takes the
+ * text up to the next same-level opening tag (or end of body) as that block's
+ * content. Deterministic and simple by design — not a full HTML5 parser.
+ */
+function xhtmlToBlocksFallback(body: string): RawBlock[] {
+  const blocks: RawBlock[] = [];
+  const openRe = /<(h[1-6]|p|li|blockquote)\b[^>]*>/gi;
+  const opens = [...body.matchAll(openRe)];
+  for (let i = 0; i < opens.length; i++) {
+    const m = opens[i];
+    const tag = m[1].toLowerCase();
+    const start = m.index! + m[0].length;
+    const end = i + 1 < opens.length ? opens[i + 1].index! : body.length;
+    pushBlock(blocks, tag, body.slice(start, end));
+  }
+  return blocks;
+}
+
+/**
+ * Turn an XHTML content document's body into ordered blocks. `href` is used
+ * only to name the chapter in the fallback warning (issue #14).
+ */
+export function xhtmlToBlocks(html: string, href?: string): RawBlock[] {
   const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
   const body = bodyMatch ? bodyMatch[1] : html;
 
@@ -138,14 +172,21 @@ export function xhtmlToBlocks(html: string): RawBlock[] {
   // children (e.g. <li><p>…), so we don't emit a paragraph twice.
   const re = /<(h[1-6]|p|li|blockquote)\b[^>]*>([\s\S]*?)<\/\1>/gi;
   for (const m of body.matchAll(re)) {
-    const tag = m[1].toLowerCase();
-    const text = stripTags(m[2]);
-    if (!text) continue;
-    if (tag[0] === 'h') {
-      blocks.push({ type: 'heading', level: Number(tag[1]), text });
-    } else {
-      blocks.push({ type: 'paragraph', text });
+    pushBlock(blocks, m[1].toLowerCase(), m[2]);
+  }
+
+  // Strict pass found nothing but the body has content — likely unclosed block
+  // tags. Recover what we can with an opening-tag split rather than silently
+  // dropping the whole chapter's text (issue #14).
+  if (blocks.length === 0 && body.trim()) {
+    const recovered = xhtmlToBlocksFallback(body);
+    if (recovered.length > 0) {
+      console.warn(
+        `[epub] chapter "${href ?? '?'}" used unclosed-tag fallback, recovered ${recovered.length} block(s)`
+      );
+      return recovered;
     }
   }
+
   return blocks;
 }

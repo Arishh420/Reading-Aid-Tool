@@ -982,6 +982,41 @@ why*, for anyone reading the superseded text.
   `[\s"']` set costs nothing since `"`/`'` can never legitimately precede an
   attribute name in well-formed markup either. Fixes #43.
 
+## Bug-fix — EPUB unclosed `<p>` drops chapter text silently (issue #14)
+
+- **D94 · Additive opening-tag fallback gated on a whole-chapter zero, not a
+  rewrite of the strict pass; `href` threaded as an optional param only for the
+  warning.** *Adversarial-audit finding (issue #14, HIGH, flagged by two
+  passes).* `xhtmlToBlocks`'s strict regex is backreferenced
+  (`<(h[1-6]|p|li|blockquote)…</\1>`), so a block tag with no matching close
+  tag matches nothing and the chapter's text vanishes silently — proven at
+  4000 unclosed `<p>` → 0 blocks. The backreference is kept as-is (it's
+  load-bearing for the strict pass's nested-child de-dup, e.g. `<li><p>…`);
+  instead, when the strict pass yields **0** blocks and the trimmed body is
+  non-empty, a second pass splits on block-level *opening* tags and takes each
+  opener's text up to the next opener (or end of body). If the fallback also
+  yields 0, current behavior is kept — no invented third pass. The fallback
+  emits a `console.warn` in the existing `[epub] …` style (mirrors D63/D93) so
+  a partial-recovery chapter is visible in logs rather than throwing; this
+  required an **optional** `href` second parameter on `xhtmlToBlocks` purely to
+  name the chapter (backward-compatible, `epub.ts`'s one call site now passes
+  it — no signature change forced on anything else). `reindexWords`/`Block.id`
+  untouched.
+  **Scope decision (flagged, not silently narrowed):** the fallback fires only
+  on a whole-chapter zero. A body mixing one closed block tag with several
+  unclosed ones keeps the strict pass's `>0` result, so the fallback never
+  runs and the unclosed tails are still lost — same bug class, mid-chapter/
+  partial scope. Fixing that would mean a per-tag recovery merge (detect which
+  specific openers lack closers and splice them into the strict output), which
+  risks double-emitting text the strict pass already captured and needs its
+  own de-dup design. Deferred as a documented follow-up (FINDINGS F29) rather
+  than bundled in; the headless suite asserts the partial-loss case is
+  *unchanged* so the gap is on record, not implied fixed. Alternative rejected:
+  dropping the backreference so the strict pass tolerates unclosed tags — it
+  would reintroduce the nested-`li>p` double-count the backreference exists to
+  prevent, a regression on well-formed EPUBs (the common case) to fix the
+  malformed one. Fixes #14.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
