@@ -323,6 +323,8 @@
 - **D38 · File-format auto-detect by extension, dropdown as override.** The
   format dropdown is the explicit selector (spec), but a recognized extension
   auto-selects it; the dropdown disambiguates otherwise (e.g. `.txt` → Markdown).
+  **(Superseded by D97 for the touched-dropdown case — extension no longer
+  overrides an explicit selection once the user has changed the dropdown.)**
 
 ## Milestone 7 — Polish (final V1)
 
@@ -1080,6 +1082,52 @@ why*, for anyone reading the superseded text.
 
   Alternative rejected: auto-restart Play/Space at end-of-document (option 2
   in issue #64) — rejected for the reasons above, primarily (a) and (b).
+
+## Bug-fix — Format dropdown silently overridden by file extension (issue #19)
+
+- **D97 · Dropdown wins once touched; extension only pre-selects. Supersedes
+  D38's "extension auto-selects, dropdown disambiguates."** *Adversarial-audit
+  finding, not a user repro.* `FileInput.tsx`'s `loadFile()` resolved the
+  parse format as `detectFormat(file.name) ?? format` — a recognized
+  extension **always** won over whatever the user had explicitly chosen in
+  the dropdown, contradicting D38's own title ("dropdown as override") and
+  PROJECT_CONTEXT.md §7.4's description of the dropdown as "the explicit
+  selector." Concretely: a user picks EPUB from the dropdown (because their
+  file is misnamed, or because they want to force a specific parser), then
+  drags in a file — if that file's name ends in `.md`/`.pdf`/anything
+  `detectFormat` recognizes, the explicit EPUB choice was silently discarded
+  and Markdown/PDF parsing ran instead, with no indication to the user that
+  their selection didn't take effect.
+
+  Fix: a new `userSetFormat` boolean state (initialized `false`) tracks
+  whether the user has ever changed the dropdown themselves. The dropdown's
+  `onChange` sets both `format` and `userSetFormat = true`. `loadFile()`'s
+  resolution becomes `userSetFormat ? format : (detectFormat(file.name) ??
+  format)` — once the user has touched the dropdown, every subsequent file
+  load (drag-and-drop, "Choose file", repeated loads) uses that chosen format
+  regardless of extension, until they change the dropdown again. A user who
+  never touches the dropdown gets unchanged behavior: extension auto-detect
+  picks the format on first and every load, exactly as D38 originally
+  specified — D38 is not wrong for that case, only for the touched case,
+  which is why this supersedes it rather than replacing it outright. The
+  file's top doc comment was rewritten to state the corrected contract
+  (dropdown authoritative once touched; extension is a pre-select default
+  only) so the code and its own header no longer contradict each other.
+
+  **No reset trigger was added for `userSetFormat`.** Once set, it stays
+  `true` for the component's lifetime (no "forget my choice" affordance,
+  e.g. on switching back to a format matching the current file's extension).
+  This matches the issue's fix direction literally ("dropdown wins... until
+  they change the dropdown again") and avoids guessing at an implicit-reset
+  heuristic (e.g. "reset if the user picks a format that happens to match
+  the next loaded file's extension") that D38's own bug already shows is
+  risky to get right implicitly.
+
+  Alternative rejected: dropping `detectFormat` entirely and requiring manual
+  selection always — rejected because it regresses the documented
+  convenience default (PROJECT_CONTEXT.md §7.4, "the format dropdown exists
+  precisely so the user can pick the cleanest source"); the bug was the
+  *override direction*, not the existence of auto-detection. Fixes #19.
 
 ## Appendix — Log meta
 

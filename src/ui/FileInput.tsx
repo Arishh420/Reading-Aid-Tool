@@ -5,9 +5,10 @@ import { SAMPLE_MARKDOWN } from './sample';
 
 /**
  * File input (§7.4) — a format selector (Markdown / PDF / EPUB) plus a picker,
- * drag-and-drop, and a Markdown "load sample" shortcut. The dropdown is the
- * explicit selector; the file's extension auto-selects it when recognized, so
- * the dropdown mainly disambiguates (e.g. a plain `.txt` treated as Markdown).
+ * drag-and-drop, and a Markdown "load sample" shortcut. The dropdown is
+ * authoritative once the user has touched it — every subsequent load uses
+ * that choice regardless of extension. Until then, a recognized file
+ * extension pre-selects the dropdown as a convenience default.
  */
 
 // Fixed fingerprint for the built-in sample — same string every load so
@@ -41,10 +42,11 @@ export function FileInput({ onLoad, onError }: FileInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [format, setFormat] = useState<Format>('markdown');
+  const [userSetFormat, setUserSetFormat] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function loadFile(file: File) {
-    const resolved = detectFormat(file.name) ?? format;
+    const resolved = userSetFormat ? format : (detectFormat(file.name) ?? format);
     setFormat(resolved);
     setBusy(true);
     try {
@@ -96,7 +98,10 @@ export function FileInput({ onLoad, onError }: FileInputProps) {
           className="mode-select"
           value={format}
           disabled={busy}
-          onChange={(e) => setFormat(e.target.value as Format)}
+          onChange={(e) => {
+            setFormat(e.target.value as Format);
+            setUserSetFormat(true);
+          }}
         >
           {FORMAT_OPTIONS.map((f) => (
             <option key={f.id} value={f.id}>
