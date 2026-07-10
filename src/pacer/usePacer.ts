@@ -142,6 +142,10 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
         if (next === -1) {
           accRef.current = 0;
           setPlaying(false);
+          if (!atEndRef.current) {
+            atEndRef.current = true;
+            setAtEnd(true);
+          }
           return;
         }
         commit(next);
@@ -175,7 +179,7 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
   }, [words, commit]);
 
   const play = useCallback(() => {
-    if (firstWordlikeFrom(wordsRef.current, indexRef.current + 1) === -1) return;
+    if (atEndRef.current) return;
     setPlaying(true);
   }, []);
 
@@ -184,7 +188,7 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
   const toggle = useCallback(() => {
     setPlaying((p) => {
       if (p) return false;
-      return firstWordlikeFrom(wordsRef.current, indexRef.current + 1) !== -1;
+      return !atEndRef.current;
     });
   }, []);
 

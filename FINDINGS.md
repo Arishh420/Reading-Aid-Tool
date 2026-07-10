@@ -966,6 +966,105 @@ EPUB-variety caveats in F7 are unchanged by this fix.
 
 ---
 
+### F30 — Chunk mode `atEnd` never flipped at end-of-document; `play()`/`toggle()` independently recomputed the same non-chunk-aware check 📐 **Reasoned through code trace, not test-verified**
+
+Issue #18 (adversarial-audit finding, not a user repro): `atEnd` is the single
+piece of state `PacerControls`'s `disabled={pacer.atEnd && !pacer.playing}` and
+the App-level spacebar handler (via `pacer.toggle()`) both rely on to refuse
+"play past the end." Before this fix, `atEnd` was flipped in exactly one place
+— `commit(next)`, via `ended = firstWordlikeFrom(wordsRef.current, next + 1) ===
+-1`. But `tick()` reaches genuine end-of-document through a **second, separate
+branch** that never calls `commit()`: when the chunk-stepping loop's final
+`firstWordlikeFrom(w, last + 1)` returns `-1` (no word-like token after the
+current chunk), `tick()` just zeroes the accumulator and calls
+`setPlaying(false)` — `atEnd`/`atEndRef` are untouched.
+
+**Why this only manifests for `chunkSize` ≥ 2, matching the issue title
+exactly:** `indexRef.current` (the value `commit()` last wrote) is the *first*
+word of the displayed chunk, not the last. For a single-word final chunk
+(`chunkSize` 1, i.e. flowing/RSVP, or a chunk mode where the document length
+happens to leave exactly one word for the last step), that first word *is* the
+last word of the document, so the **previous** `commit()` call already computed
+`ended = true` correctly — `tick()`'s `next === -1` branch is reached afterward
+but is a no-op replay of an already-correct state. For a final chunk holding
+≥2 words, `indexRef.current` sits at the chunk's *start* — e.g. document has 10
+word-like tokens (indices 0–9), `chunkSize = 2`, final committed index is 8
+(chunk displays words 8–9). At that commit, `ended = firstWordlikeFrom(w, 8 + 1
+= 9) === -1` evaluates to **false**, because word 9 exists and is word-like —
+it's simply already part of the currently-displayed chunk, not literally "next."
+So `atEnd` stays false through that commit, and the subsequent tick that
+detects the *true* end (nothing after word 9) is exactly the branch that never
+touched `atEnd` at all. Net effect: `atEnd` never becomes `true` for any
+document whose final chunk has ≥2 words, matching the issue's proven repro.
+
+**Second, related gap found while implementing the fix (not in the original
+issue body, surfaced during review before editing):** `play()` and `toggle()`
+each independently recomputed "is there something after the current index" via
+`firstWordlikeFrom(wordsRef.current, indexRef.current + 1) !== -1` — the exact
+same start-of-chunk-vs-end-of-chunk conflation described above, evaluated fresh
+rather than read from the (now-fixed) `atEnd` state. Even after fixing `tick()`
+alone, calling `toggle()` directly — which is what the spacebar handler does,
+bypassing `PacerControls`'s `disabled` attribute on the Play/Pause button
+entirely — would still have returned "not at end" for `indexRef.current = 8`
+in the example above (word 9 exists and is word-like), permitting one more
+silent dwell via the keyboard path even though the on-screen button was
+correctly disabled.
+
+**Fix (`src/pacer/usePacer.ts`):**
+1. `tick()`'s `next === -1` branch now mirrors `commit()`'s guarded flip
+   pattern: `if (!atEndRef.current) { atEndRef.current = true; setAtEnd(true);
+   }`, placed alongside the existing `setPlaying(false)`. Guarded, not
+   unconditional, so it costs nothing on repeated ticks once already flipped —
+   preserves the "no re-render except on an actual boolean flip" hot-path rule.
+2. `play()` and `toggle()` were changed to read `atEndRef.current` directly
+   instead of recomputing `firstWordlikeFrom(...)` themselves — `play()`:
+   `if (atEndRef.current) return;`; `toggle()`'s play-transition arm:
+   `return !atEndRef.current;`. This makes `atEndRef` the single source of
+   truth for "can playback proceed," which both the UI disabled-state and the
+   keyboard path now agree with by construction, rather than by two
+   independently-maintained checks that could (and did) drift apart.
+
+**Why this doesn't regress `chunkSize = 1` (flowing/RSVP), traced explicitly:**
+for size 1, `tick()`'s chunk-stepping loop (`for (let k = 1; k < size; k++)`)
+never executes (`1 < 1` is false), so `last = indexRef.current` unchanged from
+before this fix — identical behavior to pre-fix code on every step that isn't
+the final one. On the step that reaches the document's actual last word,
+`commit(next)` **is** called (that word is both `last` and the committed
+`next`), and `commit()`'s own `ended` calculation already correctly evaluates
+to `true` at that point (nothing exists after the last word) — so `atEndRef`
+is already `true` by the time any later tick could reach the new
+`next === -1` branch. The new code's guard (`if (!atEndRef.current)`) is then
+a no-op there, not a double-fire — consistent with the task's constraint not
+to touch `commit()`'s own (correct, for size 1) calculation. Since `play()`/
+`toggle()` now read the same `atEndRef` that was already accurate for size 1
+before this change (it was always kept in sync via `commit()` for that case),
+their behavior for flowing/RSVP is unchanged, just cheaper (a ref read instead
+of a recomputed loop).
+
+*What was actually done, not just reasoned about:* `npm run build` (`tsc -b &&
+vite build`) run and confirmed clean — 71 modules transformed, no type errors.
+**No automated test was run or written** — this repo has no test runner
+(no vitest/jest in `devDependencies`), and `usePacer` is a React hook (uses
+`useState`/`useRef`/`useEffect`), unlike the pure-function modules the rest of
+this file's esbuild-bundle-and-import pattern (F20/F24/F26/F27/F28/F29) targets
+— that pattern doesn't extend to a hook without a React renderer + DOM (no
+`react-test-renderer`/jsdom in this repo either). The chunk-stepping and
+end-detection analysis above is a **manual trace through the actual edited
+source** (line numbers and computed values as they'd execute for a concrete
+10-word/`chunkSize=2` scenario), not a machine-executed check — tagged 📐, not
+✅, per this file's own legend.
+
+**Not verified — needs browser confirmation:** whether the Play/Pause button
+visually disables at the correct moment for a real chunk-mode document with a
+≥2-word final chunk; whether pressing spacebar at that point is now correctly
+a no-op; whether Restart correctly re-enables Play afterward (expected —
+`restart()` calls `commit()`, which recomputes `ended` from the restarted
+position — but not watched in a browser).
+
+(2026-07-10, fix/chunk-atend-issue-18)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1008,6 +1107,17 @@ EPUB-variety caveats in F7 are unchanged by this fix.
   Partial mid-chapter loss (any closed tag keeps the strict pass) left as a
   documented follow-up. Real-world EPUB variety still unverified, same caveat
   as F7/F27/F28.
+- **F30** added (2026-07-10, issue #18): chunk mode's `atEnd` never flipped at
+  end-of-document when the final chunk held ≥2 words (`tick()`'s `next === -1`
+  branch never called `commit()`, the only place `atEnd` was updated); also
+  found `play()`/`toggle()` independently recomputed the same non-chunk-aware
+  check, so the keyboard path could still bypass a correctly-disabled button.
+  Both fixed by making `atEndRef` the single source of truth. 📐 reasoned
+  through a manual trace of the edited source (no test runner in this repo,
+  and `usePacer` is a hook — the esbuild-bundle-import pattern used by
+  F20/F24/F26–F29 doesn't apply without a React renderer/DOM). 🧪 build clean.
+  Browser confirmation of the actual disabled-button/spacebar behavior still
+  outstanding.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
