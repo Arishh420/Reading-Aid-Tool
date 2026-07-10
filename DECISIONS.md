@@ -1017,6 +1017,24 @@ why*, for anyone reading the superseded text.
   prevent, a regression on well-formed EPUBs (the common case) to fix the
   malformed one. Fixes #14.
 
+## Android port scope
+
+- **D95 · EPUB is included in the first Android port cut (issue #7), not
+  deferred to a later release.** *Product decision.* The original v1 scope
+  (PROJECT_CONTEXT.md §4) left the Android port as a future item with no
+  stated format scope, and a pre-port audit flagged this as an open question
+  with no prior decision on record. Resolved: the first Android cut ships
+  with EPUB support alongside Markdown/PDF, not Markdown-only-with-EPUB-later.
+  This is tractable as a first-cut feature rather than a stretch goal because
+  EPUB parsing was already architected as portable — `epubStructure.ts`'s
+  container/OPF/spine parsing and XHTML-to-blocks logic is pure TS with no
+  DOM dependency (D35), and the heavy platform-specific piece (`JSZip` +
+  `ArrayBuffer` I/O) is isolated to the thin `epub.ts` wrapper, which is the
+  only part requiring an RN-side replacement (D36; see ARCHITECTURE.md
+  Porting notes). This does not resolve or touch the separate, still-open
+  question of whether the pacer should auto-restart at end-of-document
+  (F23/D89) — that remains undecided and is tracked as its own issue.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

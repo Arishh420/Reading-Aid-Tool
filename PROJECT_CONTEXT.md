@@ -99,7 +99,7 @@ Do **not** build these in v1. Listed only so the architecture leaves room for th
 - Margin annotations / sticky notes
 - Forced pause + recall prompts (testing-effect retention aid)
 - AI summary sidebar (will require an API key — deferred until access is available)
-- Native **Android app** — planned future port. **Because of this, prefer React** so a future React Native migration shares logic and mental model.
+- Native **Android app** — planned future port (issue #7). **Because of this, prefer React** so a future React Native migration shares logic and mental model. **EPUB is in scope for the first Android cut** (D95) — not Markdown/PDF-only with EPUB deferred to a later release.
 
 ---
 
