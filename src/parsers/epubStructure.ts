@@ -57,7 +57,10 @@ export function stripTags(html: string): string {
 
 /** Read an attribute value (single or double quoted) from a start tag string. */
 function attr(tag: string, name: string): string | undefined {
-  const m = new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(tag);
+  const m = new RegExp(
+    `(?:^|[\\s"'])${name}\\s*=\\s*("([^"]*)"|'([^']*)')`,
+    'i'
+  ).exec(tag);
   return m ? m[2] ?? m[3] : undefined;
 }
 
@@ -87,7 +90,10 @@ export function parseOpfSpine(opfXml: string, opfPath: string): string[] {
     const idref = attr(m[0], 'idref');
     if (!idref) continue;
     const item = manifest.get(idref);
-    if (!item) continue;
+    if (!item) {
+      console.warn(`[epub] manifest item not found for idref: "${idref}" — chapter skipped`);
+      continue;
+    }
     const isContent =
       item.type.includes('xhtml') || /\.x?html?($|[?#])/i.test(item.href);
     if (isContent) hrefs.push(resolvePath(opfDir, safeDecodeHref(item.href)));
