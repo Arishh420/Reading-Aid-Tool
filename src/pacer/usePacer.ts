@@ -90,6 +90,12 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
   const lastRef = useRef(0);
   const accRef = useRef(0);
   const atEndRef = useRef(false);
+  // True once Play has actually been engaged since mount/word-list-change/restart.
+  // Lets a single-word-like-token document (where atEnd is true from the very
+  // first commit(0)) still be played once — atEnd alone would permanently
+  // disable Play for such a document. Deliberately NOT cleared in seek(): seeking
+  // to the document's last word must keep disabling Play (F23/D89).
+  const startedRef = useRef(false);
 
   const subscribe = useCallback((listener: IndexListener) => {
     listenersRef.current.add(listener);
@@ -175,11 +181,13 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
   useEffect(() => {
     setPlaying(false);
     accRef.current = 0;
+    startedRef.current = false;
     commit(Math.max(0, firstWordlikeFrom(words, 0)));
   }, [words, commit]);
 
   const play = useCallback(() => {
-    if (atEndRef.current) return;
+    if (atEndRef.current && startedRef.current) return;
+    startedRef.current = true;
     setPlaying(true);
   }, []);
 
@@ -188,12 +196,15 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
   const toggle = useCallback(() => {
     setPlaying((p) => {
       if (p) return false;
-      return !atEndRef.current;
+      const canStart = !atEndRef.current || !startedRef.current;
+      if (canStart) startedRef.current = true;
+      return canStart;
     });
   }, []);
 
   const restart = useCallback(() => {
     accRef.current = 0;
+    startedRef.current = false;
     commit(Math.max(0, firstWordlikeFrom(wordsRef.current, 0)));
   }, [commit]);
 

@@ -1065,6 +1065,81 @@ position — but not watched in a browser).
 
 ---
 
+### F31 — Single-word-like-token document permanently disables Play; `atEnd` alone can't distinguish "never started" from "reached the end" 📐 **Reasoned through code trace, not test-verified**
+
+Issue #49 (adversarial-audit finding, proven via headless guard-logic check per
+the issue body, not a user repro): `play()`/`toggle()` refuse to start whenever
+`atEndRef.current` is `true`. `atEnd` is computed **purely from position** in
+`commit()`: `ended = firstWordlikeFrom(wordsRef.current, next + 1) === -1` —
+"is there a word-like token after this one." The word-list-change reset effect
+calls `commit(Math.max(0, firstWordlikeFrom(words, 0)))` on mount, before Play
+has ever been pressed. For a document with **exactly one** word-like token,
+that initial `commit(0)` evaluates `firstWordlikeFrom(words, 1)` against a
+1-length array — no token exists at or after index 1, so `ended = true`
+immediately. `atEndRef.current` is `true` before the reader has done anything,
+and `play()`'s `if (atEndRef.current) return;` guard (old code) then refuses to
+start playback forever — a permanently greyed-out Play button with no way to
+ever engage it, not the already-known, deliberately-unresolved "should Play at
+the end auto-restart?" question tracked in F23/D89 (that question is about
+*resuming* play after having already played through to the end; this is about
+never being able to start at all).
+
+**Why `atEnd` alone can't carry both meanings:** the single boolean is
+overloaded to mean "no word-like token follows the current index," which is
+true in two different situations that need different button behavior —
+(a) the document is exhausted *after having been played*, where disabling Play
+is correct (F23/D89's intended behavior, e.g. after seeking to the last word),
+and (b) the document's *initial* position already satisfies that same
+positional test, which happens whenever there is only one word-like token
+total, where disabling Play is wrong — the reader hasn't had a chance to
+engage it yet.
+
+**Fix (`src/pacer/usePacer.ts`):** added a second ref, `startedRef`, tracking
+"has Play actually been engaged since mount/word-list-change/restart" —
+independent of position. Set to `false` in the word-list-change reset effect
+and in `restart()`; left deliberately untouched by `seek()` (seeking to the
+document's last word must still disable Play afterward, preserving F23/D89).
+`play()`'s guard becomes `if (atEndRef.current && startedRef.current) return;`
+— i.e. refuse only if the document is *both* at its end *and* has already been
+started once; otherwise proceed and set `startedRef.current = true`.
+`toggle()`'s play-transition arm mirrors this: `canStart = !atEndRef.current ||
+!startedRef.current`. Net effect: a fresh single-word document's first Play
+press always succeeds (`startedRef.current` is `false`, so the `&&`/`||`
+conditions pass regardless of `atEndRef`); every subsequent Play/toggle call
+after that first engagement is governed by `atEndRef` exactly as before this
+fix, so the multi-word, already-established F23/D89 behavior (Play disabled
+after reaching the end, until `restart()`) is unchanged. `commit()`'s `atEnd`
+computation, `tick()`, and `seek()` are untouched — no change to the per-tick
+hot path or the flat-word-index invariant.
+
+**What was actually done, not just reasoned about:** `npm run build` (`tsc -b
+&& vite build`) run and confirmed clean — 71 modules transformed, no type
+errors. **No automated test was run or written** — same constraint as F30:
+this repo has no test runner (no vitest/jest in `devDependencies`) and no
+`react-test-renderer`/jsdom, and `usePacer` is a stateful hook
+(`useState`/`useRef`/`useEffect`), so the esbuild-bundle-and-import pattern
+used elsewhere in this file for pure-function modules (F20/F24/F26–F29) does
+not apply without a React renderer + DOM. The analysis above is a **manual
+trace through the actual edited source** for the concrete 1-word-like-token
+scenario (computing `firstWordlikeFrom` against a length-1 array, and walking
+both the pre-fix and post-fix `play()`/`toggle()` bodies against it), plus a
+walk of the multi-word case to confirm `startedRef` doesn't loosen F23/D89's
+existing end-of-document disabling once a session has actually started —
+tagged 📐, not ✅, per this file's own legend.
+
+**Not verified — needs browser confirmation:** whether a real single-word
+document (e.g. a one-word Markdown file) actually renders an enabled,
+clickable Play button and whether pressing it visibly starts and then
+immediately re-disables playback; whether `restart()` on such a document
+correctly re-enables Play a second time; whether the spacebar path (which
+calls `toggle()`) exhibits the same fix as the on-screen button (expected,
+since both now read the same `startedRef`/`atEndRef` pair, but not watched in
+a browser).
+
+(2026-07-10, fix/single-word-play-atend)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1118,6 +1193,14 @@ position — but not watched in a browser).
   F20/F24/F26–F29 doesn't apply without a React renderer/DOM). 🧪 build clean.
   Browser confirmation of the actual disabled-button/spacebar behavior still
   outstanding.
+- **F31** added (2026-07-10, issue #49): a single-word-like-token document
+  permanently disabled Play (`commit(0)` on mount already satisfied `atEnd`'s
+  purely-positional "nothing after this index" test, before Play was ever
+  pressed). Fixed with a new `startedRef` tracking whether Play has actually
+  been engaged since mount/word-list-change/restart, independent of position;
+  `seek()` deliberately left untouched so it keeps disabling Play afterward
+  (preserves F23/D89). 📐 reasoned through a manual trace (same test-runner/
+  hook limitation as F30). 🧪 build clean. Browser confirmation outstanding.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
