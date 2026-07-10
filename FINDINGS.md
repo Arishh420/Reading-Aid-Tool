@@ -645,6 +645,104 @@ through the browser UI.
 
 ---
 
+### F25 — Hermes DOES support the four lookbehind regexes from #42/F24 — empirically compiled and executed against real Hermes binaries ✅
+
+Issue #54 flagged that `stripInline`'s four lookbehind regexes
+(`BOLD_UNDERSCORE`, `ITALIC_UNDERSCORE`, `BOLD_ASTERISK`, `ITALIC_ASTERISK` —
+D91/F24) were added without confirming Hermes (React Native's default JS
+engine) actually supports the `(?<!...)`/`(?<=...)` syntax, despite
+`markdown.ts` being tagged `[PORTABLE]` in ARCHITECTURE.md. Hermes's own docs
+claim ES9 lookbehind support, but that's a documentation claim, not a
+verified fact for this codebase — this entry closes that gap with an actual
+execution, not a lookup.
+
+**What was tested.** The exact four patterns, copied verbatim from
+`src/parsers/markdown.ts` lines 62/63/70/71:
+```js
+var BOLD_UNDERSCORE = /(?<!\w)__(.+?)__(?!\w)/g;
+var ITALIC_UNDERSCORE = /(?<!\w)_(.+?)_(?!\w)/g;
+var BOLD_ASTERISK = /\*\*(?!\s)(.+?)(?<!\s)\*\*/g;
+var ITALIC_ASTERISK = /\*(?!\s)(.+?)(?<!\s)\*/g;
+```
+run against 6 functional checks mirroring the #42 repro cases (intraword
+underscore left untouched, whitespace-flanked asterisk left untouched, plus
+4 "real emphasis still strips" regression cases) — see
+`/private/tmp/.../scratchpad/hermes-test/lookbehind-test.js` for the full
+script (not committed to the repo; a scratch artifact of this verification).
+
+**Two independent real Hermes binaries, not a simulation:**
+
+1. **`hermes-engine@0.11.0`** (npm, `osx-bin/hermesc`) — Hermes release
+   0.11.0, HBC bytecode version 84. This build has no linked VM (`-exec` is
+   listed in `--help` but errors "`hermesc does not support -exec`"), so it
+   was used in **compile-only** mode:
+   ```
+   $ node_modules/hermes-engine/osx-bin/hermesc -emit-binary -out lookbehind-test.hbc lookbehind-test.js
+   $ echo "EXIT_CODE:$?"
+   EXIT_CODE:0
+   $ file lookbehind-test.hbc
+   lookbehind-test.hbc: Hermes JavaScript bytecode, version 84
+   ```
+   No SyntaxError; valid HBC bytecode emitted. This directly answers the
+   issue's core risk ("would throw a SyntaxError at regex compile time").
+
+2. **`facebook/hermes` GitHub release `v0.13.0` (tag `rn/0.75-stable`,
+   asset `hermes-cli-darwin.tar.gz`)** — internally reports release 0.12.0,
+   HBC bytecode version 96, "Unicode RegExp Property Escapes" feature flag.
+   This release ships a real `hermes` VM binary (not just `hermesc`), so the
+   script was **actually executed**, not just compiled:
+   ```
+   $ hermes-cli-v013/hermes lookbehind-test.js
+   PASS intraword underscore untouched: "snake_case_name"
+   PASS whitespace-flanked asterisk untouched: "3 * 4 * 5"
+   PASS real italic underscore strips: "italic"
+   PASS real bold underscore strips: "bold"
+   PASS real bold asterisk strips: "bold"
+   PASS real italic asterisk strips: "italic"
+   ALL_CHECKS_PASSED
+   $ echo "EXIT_CODE:$?"
+   EXIT_CODE:0
+   ```
+   All 6 checks passed with output identical to the Node/V8 behavior
+   documented in F24 — i.e. not just "didn't crash," but **matching
+   semantics**.
+
+**Negative control (methodology check).** To rule out the compiler silently
+swallowing errors, a deliberately invalid script (`var x = 1 +;`) was run
+through both binaries and correctly rejected:
+```
+$ hermes-cli-v013/hermes negative-control.js
+negative-control.js:1:12: error: invalid expression
+var x = 1 +;
+           ^
+EXIT_CODE:2
+```
+Confirms the clean exit codes above reflect real parsing success, not a
+no-op.
+
+**Conclusion:** lookbehind assertions are supported by Hermes at both the
+parse/compile stage and the runtime/execution stage, across two independently
+sourced real binaries spanning HBC bytecode versions 84–96. `markdown.ts`
+(D91's four regexes) requires **no rewrite**; the `[PORTABLE]` tag in
+ARCHITECTURE.md stands as-is. `src/parsers/markdown.ts` was not modified by
+this investigation.
+
+**What remains open, honestly:** neither binary tested is *guaranteed* to be
+the exact Hermes version that ships when issue #7 (Android port) actually
+happens — issue #7 has no RN version pinned yet, and `hermes-engine` on npm
+is itself deprecated (superseded by Hermes bundling directly inside
+`react-native`). What this *does* establish is that lookbehind has been
+supported across a real span of released Hermes versions (bytecode 84 → 96,
+i.e. not a one-version fluke), which is strong evidence but not a substitute
+for a real device/Metro-bundler smoke test once issue #7's RN version is
+chosen. That real-device check remains an explicit pre-port dependency, same
+as the other engine-specific ❓ items already in this file (F6 pdf.js, F7
+EPUB variety).
+
+(2026-07-10, fix/54-hermes-lookbehind-verification)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -663,6 +761,10 @@ through the browser UI.
   four bugs F22 flagged as possible; predicate rewritten (13/13 headless),
   HUD ceilings corrected, disabled-button styling added. Fixes themselves
   still ❓ pending browser re-test.
+- **F25** added (2026-07-10, issue #54): confirmed the four D91/F24 lookbehind
+  regexes compile and execute correctly against two real Hermes binaries
+  (bytecode v84 and v96) — empirical, not a docs lookup. `markdown.ts`
+  unchanged; still `[PORTABLE]`.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
