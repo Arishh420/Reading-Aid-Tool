@@ -531,7 +531,7 @@ Markdown parser is portable.
   `max-height`/opacity transition, deliberately outside the `layoutKey`
   mechanism (D87). Portable: `pacer/keyboard.ts`. Web-coupled: the CSS
   collapse and the `compact` layout branch in `PacerControls.tsx`.
-- **Issue #38 QA-round fixes** (2026-07-09, same day, still uncommitted):
+- **Issue #38 QA-round fixes** (2026-07-09, merged as part of PR #40):
   browser testing of the above found four real bugs and requested two feature
   changes; D89 corrects D86–D88. The Space predicate was rewritten to default
   to toggle (was: default to yield), with the Play/Pause button identified by
@@ -547,3 +547,12 @@ Markdown parser is portable.
   slider to the same number box used in the full view; `WPM_MIN` lowered
   100 → 50. Root causes and full reasoning: D89. Verification: FINDINGS
   F22 (revised)/F23.
+- **Markdown parser bug-fixes** (issues #41 #42, 2026-07-09): hard-wrapped
+  sentence-initial numbers no longer misread as an ordered-list marker —
+  paragraph-interruption now requires a bullet or an ordered marker starting
+  at 1, matching CommonMark (D90); `stripInline` resolves backslash-escapes
+  first via NUL-delimited placeholders and applies CommonMark's
+  emphasis-flanking rules per delimiter type, fixing intraword-underscore,
+  whitespace-flanked-asterisk, and escape-order corruption (D91). Both in the
+  portable layer (`parsers/markdown.ts`). 15/15 headless-verified against the
+  real bundled parser (FINDINGS F24).
