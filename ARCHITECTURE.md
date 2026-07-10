@@ -79,11 +79,23 @@ per-format module returning a normalized `Document`.
   Inline markup (bold/italic/links/code) is stripped to plain text — bionic owns
   all styling, so carrying source emphasis would fight it.
 - **PDF** (M6): `pdf.ts` extracts positioned text per page via `pdfjs-dist`
-  (`itemsToLines` groups glyphs into lines with indentation + vertical-gap cues),
-  then the **pure** `pdfText.ts` (`linesToParagraphs`) applies the cleanup
-  heuristics — drop repeated headers/footers and bare page numbers, de-hyphenate
-  line-break splits, reflow lines into paragraphs on gaps. Scanned/image-only
-  PDFs (no extractable text) are detected and rejected with a clear message.
+  (`itemsToLines` groups glyphs into lines, each carrying an x/indentation cue
+  and a `gapBefore` vertical-gap cue), then the **pure** `pdfText.ts`
+  (`linesToParagraphs`) applies the cleanup heuristics — drop repeated
+  headers/footers and bare page numbers, de-hyphenate line-break splits, and
+  reflow lines into paragraphs, breaking on **three** independent cues: a
+  vertical gap, a first-line indent vs. that page's body margin (the x cue —
+  fixed in issue #9/D98; previously computed by `itemsToLines` but never
+  read), and every page boundary (also D98 — page-to-page y-coordinates
+  aren't comparable, so this always breaks rather than trying to detect a
+  genuine cross-page continuation). `splitOversizedParagraphs` then runs as
+  an independent hard-split safety net on the resulting paragraph strings,
+  before tokenization, capping any single paragraph at 300 words regardless
+  of why the break-detection above might have missed a split (D99) — see
+  ARCHITECTURE §9's virtualization note and FINDINGS F1/F32 for why an
+  unbounded block is a perf cliff, not just a cosmetic issue. Scanned/
+  image-only PDFs (no extractable text) are detected and rejected with a
+  clear message.
 - **EPUB** (M6): `epub.ts` unzips via `JSZip`; the **pure** `epubStructure.ts`
   reads `META-INF/container.xml` → OPF → spine order and turns each XHTML body
   into blocks. Parsing uses targeted string scanning (not DOMParser) so it stays
@@ -573,3 +585,17 @@ Markdown parser is portable.
   `ResumePrompt.tsx`'s `onResume` callback now passes the full
   `PositionSnapshot` rather than a bare index. Pure logic in `App.tsx`;
   14/14 headless-verified (FINDINGS F26).
+- **PDF paragraph-collapse bug-fix** (issue #9, CRITICAL, 2026-07-10):
+  `linesToParagraphs` (`parsers/pdfText.ts`) now breaks paragraphs on a
+  first-line indent vs. a per-page body-margin mode, and unconditionally at
+  every page boundary, in addition to the existing vertical-gap cue (D98) —
+  fixes an indented, tightly-leaded document collapsing into one giant Block
+  and reopening the ~57k-node perf cliff (F1). A new independent export,
+  `splitOversizedParagraphs`, hard-caps any paragraph string at 300 words
+  before tokenization as a permanent backstop against future break-detection
+  bugs (D99), wired into `parsers/pdf.ts` between `linesToParagraphs` and
+  tokenization. Both in the portable layer (`parsers/pdfText.ts`);
+  `Word.id === flat index` (D13) unaffected since the split runs on plain
+  strings before `reindexWords`. 13/13 new headless-verified against the
+  real bundled parser, plus all pre-existing parser/storage suites re-run
+  clean (FINDINGS F32).

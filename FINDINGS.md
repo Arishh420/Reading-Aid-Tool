@@ -45,6 +45,10 @@ should be re-confirmed before the port (or anyone) relies on it:
 - **Outstanding browser-test tails** — F13/F14/F15 (felt centering/overlap), F19,
   F20, F21, and F-PRESETS-4 each close with a browser-test checklist that is still
   open.
+- **F32** ❓ — the issue #9 paragraph-break fix (indent cue, page-boundary
+  break, hard-split net) is 13/13 headless-verified against synthetic
+  `PdfLine[][]` constructions; a real-world PDF has not been loaded through
+  the browser UI to confirm the fix reads correctly on actual book layouts.
 - **F22/F23** ❓ — four of F22's originally-❓ items turned out to be real bugs
   (F23); the *fixes* for those bugs are themselves unwatched in a browser so
   far — still just corrected code + a passing headless predicate suite (now
@@ -1147,6 +1151,88 @@ a browser).
 
 ---
 
+### F32 — PDF paragraph collapse (issue #9): repro confirmed, break-detection fix + hard-split net both ✅ headless-verified against the real bundled pdfText.ts
+
+Issue #9 (CRITICAL, adversarial-audit finding, not a user repro). Before
+fixing anything, the collapse was reproduced against the **unmodified**
+`linesToParagraphs`: a synthetic 2-page document with 4 paragraphs, each
+starting with an indented first line (`x=90` vs. a `x=72` body margin) and
+tight leading (no vertical gaps anywhere, including across the page break),
+produced **1 paragraph** — confirming the issue's own "2-page indented doc →
+1 block instead of 4+" claim exactly, and confirming the root causes named in
+the issue (`PdfLine.x` populated but unread; `itemsToLines` resets
+`prevRowY` per page so every page-top line already has `gapBefore: false`).
+
+**What was actually run, not just reasoned about:** a new sibling headless
+test file, `src/parsers/pdfText-headless-test.mjs` (mirrors the existing
+esbuild-bundle-the-real-module pattern used by `headless-test.mjs`
+(markdown) and `epubStructure-headless-test.mjs` — bundles the actual
+`src/parsers/pdfText.ts`, imports the real compiled `linesToParagraphs`/
+`splitOversizedParagraphs`, not a hand-copied restatement). 14/14 checks
+passed (`node src/parsers/pdfText-headless-test.mjs`):
+
+1. **#9 repro, post-fix:** the exact 2-page/4-paragraph/no-gap construction
+   above now produces exactly 4 paragraphs with content preserved intact
+   (was 1).
+2. **Indent break alone, no gap** — a single-page, 2-paragraph body with an
+   indented second-paragraph opener and zero `gapBefore` anywhere splits
+   correctly. This is the core previously-missed case named in the issue.
+3. **False-positive guard** — a paragraph whose *opening* line is indented
+   but whose *continuation* lines all sit at the page's body margin does
+   **not** spuriously split mid-paragraph (confirms the per-page body-margin
+   mode computation, not a fixed/global threshold, is what makes indent
+   detection line up with each page's actual layout).
+4. **Page boundary alone** — two pages, identical x on every line, no
+   `gapBefore` anywhere, still force a break at the page seam.
+5. **Empty middle page (`sawContent` flag)** — a 3-page document where the
+   middle page contributes zero surviving lines (a bare page number, dropped
+   before annotation) sandwiched between two content pages produces exactly
+   2 paragraphs — one per content page — with no phantom paragraph for the
+   dropped page, and the real page-boundary break on page 3 still fires
+   (tracked via `sawContent`, not a raw page index, so an intervening empty
+   page can't suppress or duplicate the break on the next real content page).
+6. **Regression** — a same-page `gapBefore: true` line still breaks exactly
+   as before this change (D98 adds two new cues; doesn't touch the existing
+   one).
+7. **`splitOversizedParagraphs`** — a synthetic 1000-word paragraph at the
+   default 300-word cap: chunk count is exactly 4 (300×3 + 100); every chunk
+   `.split(' ').length <= 300`; `chunks.join(' ')` reproduces the original
+   1000-word string **exactly**, character-for-character. Plus: a
+   below-cap paragraph passes through unchanged (no spurious split at the
+   boundary), and a mixed short+long input splits only the paragraph that
+   actually exceeds the cap, in order.
+
+**Regression check on the pre-existing suites:** `headless-test.mjs`
+(markdown, 15/15), `epubStructure-headless-test.mjs` (12/12), and
+`src/storage/headless-test.mjs` (14/14) were all re-run after this change
+and remain green — this fix touches only `pdfText.ts`/`pdf.ts`, but since
+`pdf.ts` also imports `model/tokenize.ts` (unchanged) the invariant
+`Word.id === flat index` (D13, CLAUDE.md §4) was worth reconfirming wasn't
+implicitly disturbed; `reindexWords` still runs exactly once, last, over the
+`splitOversizedParagraphs`-processed paragraph list, per D99.
+
+**🧪 Build:** `npm run build` (`tsc -b && vite build`) clean after all
+changes — 71 modules transformed, no type errors.
+
+**Not verified — same caveat as every other parser entry in this file
+(F6/F7/F24 etc.):** this confirms the fix against synthetic `PdfLine[][]`
+constructions covering the issue's exact repro shape (indent-only, page-
+boundary-only, false-positive guard, oversized-paragraph split) plus the
+existing header/footer/hyphenation regression paths. It has **not** been
+exercised against a real-world PDF loaded through the actual browser UI —
+real PDFs may combine indentation, gaps, and page breaks in ways the 14
+synthetic cases don't cover (e.g. a body margin that legitimately varies
+line-to-line due to justified-text kerning noise wider than the 5pt
+threshold, or a genuine mid-sentence page break that now gets an extra
+paragraph-dwell pause per D98's accepted trade-off). The pdf.js extraction
+path itself (`itemsToLines`, F6) remains ❓ unverified in a browser, as
+before — this fix only changes what `linesToParagraphs`/`pdf.ts` do with the
+`PdfLine[][]` `itemsToLines` already produces, not extraction itself.
+
+(2026-07-10, fix/pdf-paragraph-collapse)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1215,6 +1301,17 @@ a browser).
   `toggle()` in `src/pacer/usePacer.ts` already implemented this). The F23
   (line ~579) and F31 (line ~1086) tails were annotated in place pointing at
   D96, per this file's append-only discipline.
+- **F32** added (2026-07-10, issue #9, CRITICAL): PDF paragraph collapse —
+  `linesToParagraphs` ignored the `x` indent cue and never broke at page
+  boundaries, so a tightly-leaded indented novel could collapse into one
+  giant Block, reopening the ~57k-node perf cliff D19/D20 exist to prevent.
+  Fixed with a per-page body-margin indent cue + unconditional page-boundary
+  breaks (D98), plus an independent `splitOversizedParagraphs` hard-split
+  safety net wired pre-tokenize (D99). 14/14 new headless checks against the
+  real bundled `pdfText.ts`; all pre-existing suites (markdown 15/15, EPUB
+  structure 12/12, storage 14/14) re-run and still green. 🧪 build clean.
+  Real-world PDF-through-browser-UI verification still outstanding, same
+  caveat as F6/F7.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
