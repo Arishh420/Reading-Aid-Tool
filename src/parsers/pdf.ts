@@ -3,7 +3,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import { reindexWords, tokenize } from '../model/tokenize';
 import type { Block, Document } from '../model/types';
-import { linesToParagraphs, type PdfLine } from './pdfText';
+import { linesToParagraphs, splitOversizedParagraphs, type PdfLine } from './pdfText';
 
 /**
  * PDF parser (§7.4) — the web-coupled half. pdf.js extracts positioned text per
@@ -103,7 +103,7 @@ export async function parsePdf(data: ArrayBuffer, title?: string): Promise<Docum
       pages.push(itemsToLines(content.items as TextItem[]));
     }
 
-    const paragraphs = linesToParagraphs(pages);
+    const paragraphs = splitOversizedParagraphs(linesToParagraphs(pages));
 
     // No meaningful text across the whole document → image-only PDF.
     const visibleChars = paragraphs.join(' ').replace(/\s/g, '').length;

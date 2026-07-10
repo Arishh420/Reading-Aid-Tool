@@ -1129,6 +1129,127 @@ why*, for anyone reading the superseded text.
   precisely so the user can pick the cleanest source"); the bug was the
   *override direction*, not the existence of auto-detection. Fixes #19.
 
+## Bug-fix — PDF paragraph collapse reopens the perf cliff (issue #9, CRITICAL)
+
+- **D98 · Paragraph breaks now also fire on first-line indent (vs. a per-page
+  body margin) and unconditionally at every page boundary, not on vertical
+  gap alone.** *Adversarial-audit finding (issue #9), proven repro, not a
+  user report.* `linesToParagraphs`'s merge loop broke only on
+  `line.gapBefore`; `PdfLine.x` was populated by `itemsToLines` but never
+  read, and the step-2 flatten collapsed `pages: PdfLine[][]` into one array
+  before the merge loop ran, discarding which lines started a new page.
+  Combined with `itemsToLines` resetting `prevRowY` to `null` per page (so
+  every page's first line already had `gapBefore: false` by construction), an
+  indented novel with tight leading — the common case, no blank line or extra
+  vertical space between paragraphs, just an indented first line — collapsed
+  into a single giant paragraph, and therefore a single giant `Block`.
+  Reproduced headlessly before the fix: a synthetic 2-page, 4-paragraph
+  indented document with zero vertical gaps produced **1** paragraph.
+  `Reader.tsx` virtualizes per block but renders `block.words.map(...)`
+  unvirtualized *inside* each block, so a book-sized block mounts the entire
+  book's word spans at once — the exact ~57k-node perf cliff D19/D20 exist to
+  prevent — degrading the RSVP context strip and per-word paragraph dwell
+  along with it.
+
+  Fix, both inside `linesToParagraphs` (`src/parsers/pdfText.ts`):
+  1. **Indent cue.** Restructured step 2 to operate **per page** instead of
+     flattening first: for each page's surviving lines (after the existing
+     page-number/repeated-edge drop, unchanged), compute that page's **body
+     margin** as the mode of `x` across those lines — x values bucketed to
+     the nearest 1pt to absorb floating-point jitter, ties broken toward the
+     smaller x (the body margin is the leftmost common indentation; an
+     indented first line sits to its right, never left of it in the normal
+     case). A line is flagged `indentBreak` when `x − bodyMargin >
+     INDENT_THRESHOLD` (`= 5`pt — comfortably above jitter, comfortably below
+     a real first-line indent, which typically runs 18–36pt/0.25–0.5in). This
+     is a **new, independent** break cue: it fires even when `gapBefore` is
+     `false`, which is the core of the bug — a tightly-leaded indented
+     paragraph had no gap signal AND no indent signal before this fix.
+  2. **Page boundary.** Each page's first surviving line is flagged
+     `pageStart` once any prior page has already contributed content
+     (tracked via a `sawContent` flag, not a raw page index, so a page that
+     contributes zero surviving lines — e.g. entirely header/footer/page-number
+     — doesn't force a spurious break on the page after it). `pageStart`
+     always forces a break. **Why unconditional, not "detect genuine
+     continuation":** `gapBefore`'s vertical-gap math is a same-page
+     y-coordinate delta; two pages' y-coordinates are independent
+     coordinate spaces (pdf.js resets per page), so there is no reliable
+     signal for "this page-top line continues the previous page's sentence"
+     without much more fragile heuristics (matching the last page's final
+     punctuation, sentence-case of the next line, etc.). Always breaking is
+     the simple, robust choice — deliberately not attempted here.
+     The merge loop's break condition becomes `line.gapBefore ||
+     line.indentBreak || line.pageStart`; de-hyphenation/dash-join logic is
+     unchanged and only runs when none of the three cues fire.
+
+  **Accepted trade-off, not a bug:** a paragraph that legitimately spans a
+  page break (no indent, mid-sentence) now becomes two blocks instead of one
+  — one extra paragraph-end dwell pause (dwell.ts's 3× multiplier) at the
+  seam. Given the alternative is the CRITICAL collapse this fixes, over-
+  splitting at a page seam is the correct trade to make.
+
+  Alternative rejected: requiring *both* an indent and a gap to break —
+  would have left the reported repro (tight leading, indent only) broken,
+  defeating the fix's purpose. Alternative rejected for page boundaries:
+  comparing the last line's trailing punctuation across the page break to
+  guess continuation — fragile (a legitimate mid-sentence page break rarely
+  ends in terminal punctuation, but so does an em-dash-interrupted sentence,
+  a heading, or many other cases) and explicitly out of scope per the issue's
+  fix direction. Fixes #9 (part 1 of 2 — see D99 for the independent
+  hard-split safety net).
+
+- **D99 · Independent hard-split safety net (`splitOversizedParagraphs`),
+  wired between paragraph detection and tokenization — not a replacement
+  for D98, a backstop for it.** *Adversarial-audit finding (issue #9,
+  CRITICAL), explicit fix-direction requirement.* D98 fixes the specific
+  bugs found in this pass, but paragraph-break detection over positioned PDF
+  text is inherently heuristic (F6: multi-column layouts, tables, footnotes,
+  and drop-caps are already documented as reflowing incorrectly) — nothing
+  guarantees some future PDF, or some future parser change, can't again
+  produce one giant block. A hard cap that runs regardless of *why* a
+  paragraph got too large closes that class of bug permanently, not just
+  the two instances fixed today.
+
+  `splitOversizedParagraphs(paragraphs: string[], maxWords = 300): string[]`
+  (new export, `src/parsers/pdfText.ts`) splits any paragraph string above
+  `maxWords` into consecutive `maxWords`-word chunks at whitespace boundaries
+  only (`.split(' ')` / `.slice(...).join(' ')` — paragraph strings are
+  already single-space-normalized by `linesToParagraphs`'s `flush`, so this
+  never splits mid-word); rejoining every returned chunk with a single space
+  reproduces the input exactly. Wired into `src/parsers/pdf.ts` as
+  `splitOversizedParagraphs(linesToParagraphs(pages))` — **one line**,
+  between the existing `linesToParagraphs` call and the `paragraphs.map(...)`
+  tokenization step. Operates on plain paragraph **strings**, before
+  `tokenize()`/`reindexWords()` ever run, so it is structurally independent
+  of D98 (it would catch a book-sized block even if D98 were reverted or a
+  new break-detection bug were introduced) and the `Word.id === flat index`
+  invariant (CLAUDE.md §4, D13) holds automatically — `reindexWords` still
+  runs exactly once, last, over the already-split paragraph list.
+
+  **Why 300 words:** the virtualizer (`@tanstack/react-virtual`, D18/D20)
+  mounts only blocks near the viewport plus its overscan — typically
+  15–30 blocks at once, not the document's full block count. At 300
+  words/block, even the high end of that range keeps mounted words in the
+  **low thousands**, far below the ~57k-node cliff F1 identifies as the
+  original perf failure. 300 was not tuned against a measured overscan
+  count; it's a conservative round number comfortably under the danger
+  zone by more than an order of magnitude, chosen so the net remains
+  effective even if overscan configuration changes later. The scanned-PDF
+  `visibleChars` detection in `pdf.ts` is unaffected — it counts characters,
+  and splitting a paragraph doesn't change the total character count.
+
+  Alternative rejected: splitting at a lower cap (e.g. 100) — would trade a
+  wider safety margin for more frequent paragraph-dwell interruptions on
+  legitimately long paragraphs (some literary/legal prose runs long), which
+  is a worse reading experience for no additional safety benefit once
+  already an order of magnitude under the cliff threshold. Alternative
+  rejected: splitting at sentence boundaries instead of a raw word count —
+  more "natural," but adds complexity and a new failure mode (a paragraph
+  with no sentence-ending punctuation for 300+ words, e.g. a run-on or a
+  parsing artifact, would defeat a sentence-boundary splitter entirely,
+  which is exactly the pathological case this safety net exists to catch
+  unconditionally). Fixes #9 (part 2 of 2).
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
