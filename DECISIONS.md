@@ -902,6 +902,47 @@ why*, for anyone reading the superseded text.
   `snake*case*name`-style false positives or forbid legitimate mid-word `*`
   emphasis that `_` correctly permits elsewhere in the spec.
 
+## Bug-fix — Resume-position drift not validated against saved wordCount (issue #48)
+
+- **D92 · Silent percent-fallback on `wordCount` drift, not a warning or a
+  visible note.** *Adversarial-audit finding (issue #48), decision made
+  explicitly rather than left to implementation default.* `BookRecord.wordCount`
+  was captured at save time (issue #6) but never compared against the current
+  parse's word count on restore — the only guard was `wordIndex <
+  words.length`. If a parser change re-tokenizes the same file bytes (any of
+  the markdown/EPUB fixes in D90/D91/D65/D62 would do this for an
+  already-saved book), the content fingerprint still matches, so the resume
+  prompt still offers to resume — but the saved raw `wordIndex` now points at
+  an arbitrary, likely-wrong word under the new tokenization, while `percent`
+  (stored per `PositionSnapshot`, already the number the `ResumePrompt` UI
+  shows the user, e.g. "Resume at 42%?") is unaffected by re-tokenization,
+  since it's a ratio over word count rather than an absolute position. Fix:
+  `handleResume` (`App.tsx`) now compares `resumeRecord.wordCount` against the
+  live `words.length`; on a mismatch it recomputes the seek target as
+  `round(percent · (words.length − 1))` instead of using the stored
+  `wordIndex` directly. The final `Math.max(0, Math.min(target, len - 1))`
+  clamp generalizes the old high-side-only guard to cover both ends,
+  including a corrupted or out-of-range stored `percent`.
+  **Why silent, not a warning:** the two alternatives raised in the original
+  issue — surface a warning, or discard the position — are both worse than
+  landing at the percent. A warning has nothing new to tell the user: the
+  percent is *already* the number displayed on the resume screen ("Resume at
+  42%?"), so honoring it is fulfilling the promise already made, not a
+  degraded fallback the user needs to be alerted to. Discarding the position
+  outright throws away a perfectly good approximate bookmark for no benefit.
+  The only thing that would actually be a regression is silently keeping the
+  **stale raw index** and calling it fine — which is exactly the bug this
+  fixes. A `console.info` (dev-only, not user-visible) logs old vs. new
+  wordCount and the recomputed index so the path is verifiable in testing
+  without adding UI surface for something that isn't an error condition.
+  **Threading change:** `handleResume` previously took a bare `wordIndex:
+  number`; it now takes the full `PositionSnapshot` (it needs `percent`, which
+  a bare index can't carry), so `ResumePrompt`'s two call sites (the primary
+  "Resume at N%" button and each history-entry button) now pass the snapshot
+  object (`latest`, `snap`) instead of `.wordIndex`. Non-drift behavior is
+  unchanged — `target = snapshot.wordIndex` — so this is a threading change,
+  not a behavior change, for every book whose tokenization hasn't shifted.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

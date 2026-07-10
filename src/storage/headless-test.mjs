@@ -11,6 +11,11 @@
  *   6. Fingerprint: same content → same hash (deterministic).
  *      Uses Node's crypto, same SHA-256 algorithm as the browser.
  *   7. Fingerprint: different content → different hash.
+ *   8-9. Fingerprint sampling on large (>96 KB) files.
+ *   10. History entries are stored newest-first.
+ *   11-14. Resume-target mapping (issue #48): wordCount drift → resume by
+ *      percent instead of raw wordIndex; no drift → raw wordIndex unchanged;
+ *      clamping holds at both ends of the word range.
  *
  * What requires the browser (noted, not tested here):
  *   - computeFingerprint() on a real File object (crypto.subtle is browser API).
@@ -40,6 +45,25 @@ function applyPositionSave(existing, fingerprint, title, wordIndex, wordCount, n
     history = [snapshot, ...history].slice(0, 5);
   }
   return { fingerprint, title, wordCount, latest: snapshot, history };
+}
+
+// ─── Inline the resume-target mapping from App.tsx's handleResume ───────────
+// (issue #48 — wordCount drift detection + percent fallback)
+
+/**
+ * Mirrors handleResume()'s pure index-selection logic: given the BookRecord's
+ * stored wordCount, the chosen PositionSnapshot, and the current flattened
+ * word count, returns the word index to seek to.
+ */
+function resolveResumeTarget(recordWordCount, snapshot, currentWordCount) {
+  const len = currentWordCount;
+  let target;
+  if (recordWordCount !== len) {
+    target = len > 1 ? Math.round(snapshot.percent * (len - 1)) : 0;
+  } else {
+    target = snapshot.wordIndex;
+  }
+  return Math.max(0, Math.min(target, len - 1));
 }
 
 // ─── Inline computeFingerprint logic using Node crypto ───────────────────────
@@ -197,6 +221,43 @@ test('history is stored newest-first', () => {
   // Each save is >2 % apart, so all should be in history.
   assert.ok(record.history[0].savedAt > record.history[1].savedAt,
     'history[0] should be more recent than history[1]');
+});
+
+// 11. No drift: wordCount matches → raw wordIndex is used, unchanged.
+test('no wordCount drift: resumes at the raw saved wordIndex', () => {
+  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1 };
+  const target = resolveResumeTarget(10000, snapshot, 10000);
+  assert.equal(target, 4200);
+});
+
+// 12. Drift: wordCount mismatch → falls back to round(percent * (len - 1)).
+test('wordCount drift: resumes by percent instead of raw wordIndex', () => {
+  // Saved against a 10,000-word parse at 42 %; re-parsed to 8,000 words
+  // (e.g. a parser fix changed tokenization for the same file bytes).
+  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1 };
+  const target = resolveResumeTarget(10000, snapshot, 8000);
+  const expected = Math.round(0.42 * 7999);
+  assert.equal(target, expected, `expected ${expected}, got ${target}`);
+  assert.notEqual(target, 4200, 'should not have used the stale raw wordIndex');
+});
+
+// 13. Clamp holds at the low end (percent 0 on a drifted record).
+test('drift fallback clamps at the low end', () => {
+  const snapshot = { wordIndex: 0, percent: 0, savedAt: 1 };
+  const target = resolveResumeTarget(500, snapshot, 300);
+  assert.equal(target, 0);
+});
+
+// 14. Clamp holds at the high end (percent 1, and a pathological >1 percent
+// from a corrupted record, on both drifted and non-drifted paths).
+test('clamp holds at the high end for both drift and non-drift paths', () => {
+  const atEnd = { wordIndex: 299, percent: 1, savedAt: 1 };
+  assert.equal(resolveResumeTarget(300, atEnd, 300), 299, 'non-drift high end');
+  assert.equal(resolveResumeTarget(500, atEnd, 300), 299, 'drift high end');
+
+  const corrupted = { wordIndex: 99999, percent: 1.5, savedAt: 1 };
+  assert.equal(resolveResumeTarget(500, corrupted, 300), 299, 'drift path clamps a corrupted percent');
+  assert.equal(resolveResumeTarget(300, corrupted, 300), 299, 'non-drift path clamps a stale wordIndex');
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
