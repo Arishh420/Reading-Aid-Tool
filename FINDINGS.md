@@ -576,6 +576,8 @@ visible `:disabled` styling; did **not** change the underlying "can't play
 past the last word" behavior, since that's a pacer-semantics product decision
 (e.g. "should Play at the end auto-restart?") that wasn't made unilaterally —
 flagged as an open question in the summary handed back for review.
+**Resolved 2026-07-10 — see DECISIONS.md D96: kept disabled at end-of-document,
+no auto-restart; ↺ Restart is the explicit replay gesture.**
 
 **Headless ✅ (13/13, up from 9/9 — real bundled `src/pacer/keyboard.ts`, plus
 `pacerToggleButtonProps` imported from the same bundle rather than
@@ -602,6 +604,7 @@ changes.
 - The open product question from bug #4: should pressing Play/Space at
   `atEnd` auto-restart, or is "disabled until you seek back or hit Restart"
   the intended behavior? Left as-is pending explicit direction.
+  **Resolved 2026-07-10 — see DECISIONS.md D96 (kept disabled; no auto-restart).**
 
 (2026-07-09, feature/reading-hud-and-spacebar-fix, QA-round fixes)
 
@@ -1083,6 +1086,10 @@ ever engage it, not the already-known, deliberately-unresolved "should Play at
 the end auto-restart?" question tracked in F23/D89 (that question is about
 *resuming* play after having already played through to the end; this is about
 never being able to start at all).
+**That question is no longer open: resolved 2026-07-10 by DECISIONS.md D96
+(kept disabled at end-of-document; no auto-restart). This F31 fix is
+unaffected either way — it's orthogonal (fixes never-started, not
+resumed-after-end).**
 
 **Why `atEnd` alone can't carry both meanings:** the single boolean is
 overloaded to mean "no word-like token follows the current index," which is
@@ -1201,6 +1208,13 @@ a browser).
   `seek()` deliberately left untouched so it keeps disabling Play afterward
   (preserves F23/D89). 📐 reasoned through a manual trace (same test-runner/
   hook limitation as F30). 🧪 build clean. Browser confirmation outstanding.
+- **2026-07-10 (issue #64):** the end-of-document Play/Space auto-restart
+  question — open since F23/D89 (2026-07-09), reaffirmed still-unresolved by
+  F30/F31 above — was decided by the product owner: keep it disabled, no
+  auto-restart. See DECISIONS.md D96. Docs-only; no source changed (`play()`/
+  `toggle()` in `src/pacer/usePacer.ts` already implemented this). The F23
+  (line ~579) and F31 (line ~1086) tails were annotated in place pointing at
+  D96, per this file's append-only discipline.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
