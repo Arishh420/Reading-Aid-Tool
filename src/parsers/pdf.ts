@@ -16,7 +16,7 @@ import { linesToParagraphs, splitOversizedParagraphs, type PdfLine } from './pdf
 // pdf.js needs its worker; Vite resolves the URL via `?url`.
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-interface Glyph {
+export interface Glyph {
   x: number;
   y: number;
   h: number;
@@ -25,7 +25,7 @@ interface Glyph {
 }
 
 /** Group a page's text items into positioned lines (top-to-bottom). */
-function itemsToLines(items: TextItem[]): PdfLine[] {
+export function itemsToLines(items: TextItem[]): PdfLine[] {
   const glyphs: Glyph[] = [];
   for (const it of items) {
     if (typeof it.str !== 'string' || it.str.length === 0) continue;
@@ -44,7 +44,10 @@ function itemsToLines(items: TextItem[]): PdfLine[] {
     10;
 
   // Sort into reading order: top-to-bottom (PDF y grows upward), then left.
-  glyphs.sort((a, b) => (Math.abs(a.y - b.y) > medianH * 0.5 ? b.y - a.y : a.x - b.x));
+  // A proper total order — descending y, ties broken by ascending x — not a
+  // pairwise fuzzy "same row" test (issue #13: that was intransitive, and
+  // Array.sort's output for an intransitive comparator is engine-defined).
+  glyphs.sort((a, b) => b.y - a.y || a.x - b.x);
 
   const lines: PdfLine[] = [];
   let row: Glyph[] = [];

@@ -1250,6 +1250,61 @@ why*, for anyone reading the superseded text.
   which is exactly the pathological case this safety net exists to catch
   unconditionally). Fixes #9 (part 2 of 2).
 
+## Bug-fix — PDF glyph sort comparator is intransitive (issue #13, HIGH)
+
+- **D100 · Total-order comparator (`(a,b) => b.y - a.y || a.x - b.x`) over
+  fixed quantized-y bucketing, despite the issue's own suggested fix
+  direction naming buckets first.** *Adversarial-audit finding (issue #13),
+  proven by direct construction, not a user repro.* `itemsToLines`' pre-sort
+  (`src/parsers/pdf.ts:47`) picked its comparison axis **per pair**, based on
+  that pair's own `|Δy|` versus `medianH * 0.5`: under the threshold, compare
+  by x; over it, compare by y. This is not a valid total order — which axis a
+  pair uses depends on the pair itself, not a fixed global rule, so the
+  relation can cycle. Proven directly (not by trying to force
+  `Array.sort()`'s black-box behavior to visibly misbehave, which turned out
+  to be unreliable — see FINDINGS F33): for `A(x0,y0)`, `B(x10,y3)`,
+  `C(x20,y5.5)` with `medianH=10` (threshold 5), the adjacent pairs both fall
+  to the x-branch (`A<B`, `B<C`, since `|Δy|≤5`), but the non-adjacent pair
+  falls to the y-branch and reverses (`C<A`, since `|Δy|=5.5>5`) — a genuine
+  cycle. `A<B<C` transitively implies `A<C`, but the comparator says `C<A`.
+  Per ECMA-262, `Array.prototype.sort`'s behavior for a comparator that
+  isn't a consistent total order is **unspecified** — the previous code's
+  correctness on any given input was an accident of the current V8 sort
+  algorithm, not a guarantee, and could silently change with an engine
+  update.
+
+  **Fix:** replaced the pairwise fuzzy test with a proper lexicographic total
+  order — descending y (top-to-bottom, matching PDF's y-grows-upward
+  convention, unchanged from the old comparator's intent), ties broken by
+  ascending x. This is deterministic and transitive by construction (no
+  pairwise branch selection at all). Nothing downstream changes: the existing
+  sequential row-clustering sweep (the `medianH * 0.6` threshold loop) and
+  `flush()`'s per-row x-sort (`row.sort((a,b) => a.x - b.x)`) are untouched —
+  per the analysis behind this fix, the pre-sort's only real job is reliable
+  top-to-bottom **row separation**; once glyphs are correctly clustered into
+  a row, `flush()` already re-derives correct left-to-right order from x
+  regardless of the pre-sort's internal ordering within that row.
+
+  **Alternative rejected: fixed quantized-y bucketing** (the issue's own
+  suggested fix direction — "cluster glyphs into rows first by bucket, then
+  sort each row by x"). Rejected because bucketing introduces a **seam
+  problem**: a glyph whose y sits near a bucket boundary can be assigned to
+  the wrong bucket by a sub-pixel rounding difference, splitting or merging
+  rows based on where the arbitrary grid lines fall — worse than the
+  fuzzy-threshold behavior for exactly the cases this issue calls out
+  (drifting baselines, superscripts, OCR noise, inline math), where a glyph's
+  y legitimately varies within a single conceptual row. A lexicographic total
+  order has no such seam: it never needs to decide which discrete bucket a
+  borderline glyph belongs to, because row membership is still decided by the
+  existing proximity-based sweep, not by the sort.
+
+  **No change to `pdfText.ts`, `tokenize`/`reindexWords`, or the
+  `Word.id === flat index` invariant** — this fix is entirely upstream of
+  tokenization, operating on plain `Glyph[]` before any `PdfLine`/paragraph/
+  block structure exists. `itemsToLines` and its local `Glyph` interface were
+  exported (the only permitted API-surface change) solely to make the
+  comparator testable in isolation from `pdfjs-dist`. Fixes #13.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
