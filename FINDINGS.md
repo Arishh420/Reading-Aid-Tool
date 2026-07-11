@@ -49,6 +49,14 @@ should be re-confirmed before the port (or anyone) relies on it:
   break, hard-split net) is 13/13 headless-verified against synthetic
   `PdfLine[][]` constructions; a real-world PDF has not been loaded through
   the browser UI to confirm the fix reads correctly on actual book layouts.
+- **F33** ❓ — the issue #13 glyph-sort fix is proven correct as a comparator
+  (direct transitivity proof, 64,000-triple sweep), but despite an extensive
+  search, no realistic input was found where the *old* comparator visibly
+  corrupted `itemsToLines`'s output in this Node/V8 version — so there is no
+  confirmed before/after repro of user-visible text scrambling, only proof
+  the old code relied on unspecified `Array.sort` behavior and the new code
+  doesn't. Real-world PDF-through-browser-UI verification (same as F6/F32)
+  is also still open.
 - **F22/F23** ❓ — four of F22's originally-❓ items turned out to be real bugs
   (F23); the *fixes* for those bugs are themselves unwatched in a browser so
   far — still just corrected code + a passing headless predicate suite (now
@@ -1233,6 +1241,100 @@ before — this fix only changes what `linesToParagraphs`/`pdf.ts` do with the
 
 ---
 
+### F33 — PDF glyph sort comparator intransitivity (issue #13): comparator proof ✅, forced Array.sort corruption on realistic input ❓ — searched extensively, not found
+
+Issue #13 (HIGH, adversarial-audit finding, not a user repro): `itemsToLines`'
+pre-sort comparator (`src/parsers/pdf.ts:47`) picked its comparison axis
+**per pair**, based on that pair's own `|Δy|` vs. `medianH * 0.5` — not a
+fixed, global rule. This is not a valid total order (see D100 for the full
+root-cause writeup and the rejected quantized-bucket alternative).
+
+**What was actually proven, not just reasoned about (✅):**
+- A constructed 3-point triple, `A(x0,y0)`, `B(x10,y3)`, `C(x20,y5.5)` with
+  `medianH=10`: the old comparator gives `A<B` and `B<C` (both pairs under
+  the 5-unit branch threshold, so both use the x-branch) but `C<A` for the
+  direct comparison (`|Δy|=5.5>5`, so it uses the y-branch instead) — a
+  genuine cycle, run and observed via `node src/parsers/pdf-headless-test.mjs`
+  calling the comparator function directly, not inferred.
+- The same triple under the new comparator (`(a,b) => b.y-a.y || a.x-b.x`)
+  is transitively consistent (`C<B<A`, no cycle) — also run directly.
+- A broader sweep — 40 pseudo-randomly generated points, all 64,000 ordered
+  triples checked for a transitivity violation (`a<b && b<c` implies `a<c`)
+  — found zero violations for the new comparator, i.e. it behaves as a valid
+  strict total order well beyond the one hand-picked counterexample.
+- `itemsToLines` end-to-end reading-order checks (realistic small-jitter
+  single line, and two adjacent jittering lines) pass against the real
+  shipped comparator: 14/14 checks in `pdf-headless-test.mjs`.
+
+**What was searched for but NOT found, reported honestly rather than
+omitted:** before writing the final test, a ~400-seed randomized +
+parametric search (sine and uniform-random y-jitter, multiple amplitudes,
+frequencies, and line lengths ≥10 — enough to leave V8's small-array
+insertion-sort path, which the issue itself flags as a place a bad
+comparator can "look sorted" by luck) was run directly against the *old*,
+unfixed comparator's `Array.sort()` output, specifically trying to
+reproduce the issue's own illustrative "ABCDEF → BADCFE" scrambling via the
+actual `itemsToLines` pipeline (not just the bare comparator). **No
+realistic-jitter input was found where the old comparator's output visibly
+diverges from the new comparator's.** Root cause: `flush()` already
+re-sorts every clustered row by x (`row.sort((a,b) => a.x-b.x)`,
+unchanged by this fix) *after* row-clustering, which self-heals
+within-row reordering regardless of what order the pre-sort produced — so
+the only way the bug can corrupt final output is by fooling the *separate*
+sequential row-clustering sweep (the `medianH * 0.6` proximity-to-a-fixed-
+reference threshold) into mis-clustering, and V8's adaptive sort did not
+appear to exercise the specific inconsistent comparisons needed to do that
+on any of the ~3,600 parameter combinations tried within the "row-clustering
+-safe" jitter envelope (jitter small enough that a *correct* sort wouldn't
+itself trigger a spurious row split).
+
+Only at **unrealistically large** single-line jitter (amplitude comparable
+to the row-clustering threshold itself, e.g. ~3.5 against a 6-unit threshold
+for `medianH=10`) did the old comparator produce visibly broken output — a
+16-letter line fragmenting into 4–7 spurious lines. But at that same
+amplitude, the **new**, fixed comparator *also* fragments the line — because
+that magnitude of jitter independently exceeds the row-clustering sweep's
+own fixed-reference-threshold design, a separate, pre-existing limitation
+(consistent with F6's existing note that line-grouping is a y-position
+heuristic vulnerable to unusual layouts) that this fix does not touch and
+was explicitly out of scope for this task. That parameter region therefore
+does not demonstrate "this fix resolves the corruption" and was excluded
+from the committed test.
+
+**Conclusion / what this means for confidence in the fix:** the comparator
+was **provably** not a valid total order (deterministic proof, independent
+of any JS engine's particular sort algorithm) and its correctness on any
+given real-world input was therefore an unspecified-behavior accident per
+ECMA-262 — worth fixing regardless of whether this specific Node/V8 version
+happens to render it harmless today, since a different engine, a different
+V8 version, or a different comparison sequence for a differently-shaped
+input could expose it at any time. The `pdf-headless-test.mjs` integration
+checks (single/two-line drifting-baseline reading order) are **regression
+guards** confirming the fix doesn't change correct behavior on realistic
+input — they are *not* evidence that the fix resolves a previously-observed,
+reproducible instance of user-visible text scrambling, since no such
+instance was found despite a substantial search. The comparator-transitivity
+proof is the actual evidence for both the bug and the fix.
+
+🧪 `npm run build` (`tsc -b && vite build`) clean after the fix — 71 modules
+transformed, no type errors. All four pre-existing headless suites
+(markdown 15/15, EPUB structure 12/12, pdfText 14/14, storage 14/14)
+re-run and still green — this fix touches only `pdf.ts`'s pre-sort, upstream
+of `pdfText.ts`/tokenization, so no interaction with those was expected, but
+was reconfirmed rather than assumed.
+
+**Not verified — same caveat as F6 (PDF extraction generally):** the
+`pdfjs-dist` extraction path itself (`itemsToLines`'s input, i.e. real
+`TextItem[]` from a real PDF via the pdf.js worker) remains ❓ unverified in
+a browser. This fix and its tests operate entirely on synthetic
+`TextItem`-shaped objects constructed by hand; a real scanned/OCR'd or
+inline-math PDF loaded through the actual browser UI has not been used to
+confirm the fix reads correctly on genuine drifting-baseline text.
+
+(2026-07-10, fix/pdf-glyph-sort-intransitive)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1312,6 +1414,17 @@ before — this fix only changes what `linesToParagraphs`/`pdf.ts` do with the
   structure 12/12, storage 14/14) re-run and still green. 🧪 build clean.
   Real-world PDF-through-browser-UI verification still outstanding, same
   caveat as F6/F7.
+- **F33** added (2026-07-10, issue #13, HIGH): PDF glyph pre-sort comparator
+  was intransitive (picked its comparison axis per-pair rather than by a
+  fixed rule), proven by direct construction (a 3-point cycle) and a
+  64,000-triple randomized sweep confirming the new `(-y, x)` total-order
+  comparator has no such violation. A ~400-seed search for realistic input
+  where the old comparator visibly corrupts `Array.sort()` output (beyond
+  what the separate, out-of-scope row-clustering threshold breaks in *both*
+  old and fixed code) found none — reported honestly rather than omitted;
+  the 14/14 `pdf-headless-test.mjs` integration checks are regression
+  guards, not confirmation this fix resolves previously-observed scrambling.
+  🧪 build clean; all four pre-existing suites re-run and still green.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
