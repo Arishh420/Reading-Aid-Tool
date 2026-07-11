@@ -11,12 +11,16 @@ Reading slowly while mentally pronouncing every word consumes attention that
 should go to comprehension. This tool nudges the eye forward so meaning lands
 without sounding each word out.
 
-It does that two ways:
+It gives you a few tools that stack:
 
-- Bionic rendering anchors the eye on the shape of each word.
-- A WPM pacer pulls you forward at a steady, chosen speed.
+- **Bionic rendering** anchors the eye on the shape of each word.
+- **A WPM pacer** pulls you forward at a steady speed — as a flowing highlight,
+  one word at a time (RSVP), or in small chunks.
+- **Presets** bundle a mode and its settings so you can switch feel in one tap.
+
+Close the tab and come back — it remembers where you left off in each book.
 
 > The content is the product — the styling should stay out of the way.
 
-That's the whole idea. Load a real Markdown file to read your own text.
+That's the idea. Load a real Markdown, PDF, or EPUB file to read your own text.
 `;
