@@ -79,18 +79,26 @@ when you actually open a PDF or EPUB, so a Markdown-only session stays light.
 ### 1. Load a book
 On the start screen:
 - Pick a **format** in the dropdown (Markdown / PDF / EPUB), or just drop/choose
-  a file — the format is auto-detected from the extension (`.md` / `.markdown` /
-  `.txt` → Markdown, `.pdf` → PDF, `.epub` → EPUB). The dropdown is the fallback
-  for ambiguous files.
+  a file — until you touch the dropdown, format is auto-detected from the
+  extension (`.md` / `.markdown` / `.txt` → Markdown, `.pdf` → PDF, `.epub` →
+  EPUB). Once you change the dropdown yourself, that choice sticks — it
+  overrides extension detection for every file you load afterward, until you
+  change it again.
 - **Drag-and-drop** a file onto the box, or click **Choose file**.
 - **Load sample** loads a small built-in Markdown document to try things out.
+
+Reopening a book you've read before? The app fingerprints the file's content
+(not its name or path), so it recognizes the same book even if you rename or
+move it, and offers to **resume where you left off**.
 
 ### 2. Pick a reading mode (Mode dropdown)
 - **Flowing highlight** — the whole text stays laid out; a highlight glides
   word-by-word, optionally with a few "lead" words highlighted ahead
   (*Lead words*: 0–5). The active line auto-scrolls to stay in view.
 - **RSVP** — one word at a time at a fixed focal point, with one anchor letter in
-  red (the Optimal Recognition Point). *Font size*: 1.5–6 rem.
+  red (the Optimal Recognition Point). *Font size*: 1.5–6 rem. A **context
+  strip** below the word shows the dim, glanceable surrounding text (toggle
+  "Show context", on by default; 3 or 5 lines).
 - **Chunk highlight** — N words highlighted in place at a time, advancing one
   chunk per step. *Chunk size*: 2–4.
 
@@ -101,7 +109,15 @@ On the start screen:
 - **Word** field — type a word number to jump to it; a progress bar and
   percentage show your position.
 
-### 4. Reading settings (toolbar)
+### 4. Presets
+A **Presets** panel bundles a reading mode with a full settings profile (WPM,
+bionic, theme, pauses, per-mode options) so you can switch your whole reading
+feel in one click. Nine built-ins are grouped by mode (Flowing / RSVP / Chunk /
+Accessibility); you can also save your own from your current settings, rename,
+and delete them. A "Modified" indicator shows when you've drifted from the
+applied preset.
+
+### 5. Reading settings (toolbar)
 - **Bionic reading** — on/off, with **Low / Medium / High** intensity (default:
   on, Medium).
 - **Natural pauses** — when on (default), the pacer lingers longer on commas,
@@ -111,7 +127,7 @@ On the start screen:
   measure.
 - **Theme** — Light / Sepia / Dark / Dim (default: Light).
 
-### 5. Keyboard shortcuts
+### 6. Keyboard shortcuts
 | Key | Action |
 |-----|--------|
 | `Space` | Play / pause |
