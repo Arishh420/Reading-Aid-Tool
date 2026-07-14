@@ -1651,6 +1651,11 @@ has been watched in an actual browser session.
   effect behavior in this repo, so the fix itself is 📐 traced by hand
   against each effect's real body, not ✅ run — browser confirmation of all
   three user-facing symptoms is still outstanding.
+- **F-PRESETS-5** added (2026-07-14, issue #78): the six non-RSVP built-in
+  presets silently inherited `rsvp.showContext: true` from `DEFAULT_BUNDLE`,
+  contradicting D81's stated rejection of exactly that state — fixed by
+  giving each an explicit `showContext: false` override (D103). 12/12
+  headless (up from 11/11), 🧪 build clean.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
@@ -1724,3 +1729,31 @@ What requires browser testing:
   (only reading position changes on load).
 
 (2026-07-08, feature/presets)
+
+### F-PRESETS-5 — D81/code contradiction (issue #78) fixed and verified against the real values ✅ **Unit-verified**
+
+D81 said non-RSVP built-ins shouldn't carry `rsvp.showContext: true`, but
+none of the six non-RSVP built-ins ever overrode `rsvp` in their bundle, so
+all six silently inherited `true` from `DEFAULT_RSVP` via `DEFAULT_BUNDLE`
+(see D103 for the full writeup). Fixed by adding an explicit
+`rsvp: { ...DEFAULT_RSVP, showContext: false }` to each of the six.
+
+*Verified:* ✅ a new 12th check in `src/presets/headless-test.mjs`
+(`non-RSVP built-ins explicitly set rsvp.showContext:false`) asserts, for
+all six preset ids, `bundle.mode !== 'rsvp'` and `bundle.rsvp.showContext
+=== false`. 12/12 checks pass (up from 11/11 — the pre-existing 11 are
+unchanged, confirming this fix didn't alter any other bundled field: the
+`bundlesEqual`-diff check (#9) and the valid-value-range check (#2) both
+still pass against the updated inline bundle data). 🧪 `npm run build`
+(`tsc -b && vite build`) clean, 71 modules, no type errors.
+
+**Caveat, same as every other entry in this suite:** `headless-test.mjs`
+hand-copies the preset definitions rather than importing the real
+`src/presets/presets.ts` (unlike the newer esbuild-bundle-the-real-module
+pattern used by F24/F26–F29/F32/F34) — the inline copy was updated by hand
+to match the real file's new `rsvp` overrides for this fix, and the two were
+diffed by eye to confirm they match, but there's no automated guard against
+the inline copy drifting from the real source on a future change to either
+file. Not exercised in a browser — same outstanding items as F-PRESETS-4.
+
+(2026-07-14, fix/preset-showcontext-contradiction)

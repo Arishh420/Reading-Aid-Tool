@@ -12,6 +12,8 @@
  *   8. bundlesEqual returns false when any field differs.
  *   9. applyPreset yields the exact bundle (simulated).
  *  10. Built-ins cover all four groups.
+ *  11. User preset groups are inferred from mode.
+ *  12. Non-RSVP built-ins explicitly set rsvp.showContext:false (issue #78 / D103).
  *
  * What requires the browser (noted, not tested here):
  *   - React setState batching when applyPreset fires all setters.
@@ -67,15 +69,15 @@ function b(overrides) {
 const BUILTIN_PRESETS = [
   {
     id: 'builtin:deep-current', name: 'Deep Current', group: 'flowing', builtin: true,
-    bundle: b({ wpm: 300, naturalPauses: true, mode: 'flowing', bionic: { enabled: false, intensity: 'medium' }, theme: 'dim', display: { fontSize: 1.125, lineLength: 54 }, flowing: { lead: 2 } }),
+    bundle: b({ wpm: 300, naturalPauses: true, mode: 'flowing', bionic: { enabled: false, intensity: 'medium' }, theme: 'dim', display: { fontSize: 1.125, lineLength: 54 }, flowing: { lead: 2 }, rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
   {
     id: 'builtin:nightshift', name: 'Nightshift', group: 'flowing', builtin: true,
-    bundle: b({ wpm: 280, naturalPauses: true, mode: 'flowing', bionic: { enabled: true, intensity: 'medium' }, theme: 'dark' }),
+    bundle: b({ wpm: 280, naturalPauses: true, mode: 'flowing', bionic: { enabled: true, intensity: 'medium' }, theme: 'dark', rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
   {
     id: 'builtin:first-contact', name: 'First Contact', group: 'flowing', builtin: true,
-    bundle: b({ wpm: 220, naturalPauses: true, mode: 'flowing', bionic: { enabled: true, intensity: 'medium' }, theme: 'sepia' }),
+    bundle: b({ wpm: 220, naturalPauses: true, mode: 'flowing', bionic: { enabled: true, intensity: 'medium' }, theme: 'sepia', rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
   {
     id: 'builtin:afterburner', name: 'Afterburner', group: 'rsvp', builtin: true,
@@ -91,15 +93,15 @@ const BUILTIN_PRESETS = [
   },
   {
     id: 'builtin:ironclad', name: 'Ironclad', group: 'chunk', builtin: true,
-    bundle: b({ wpm: 180, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, chunk: { chunkSize: 3 } }),
+    bundle: b({ wpm: 180, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, chunk: { chunkSize: 3 }, rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
   {
     id: 'builtin:onboarding-ramp', name: 'Onboarding Ramp', group: 'chunk', builtin: true,
-    bundle: b({ wpm: 140, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, theme: 'sepia', display: { fontSize: 1.4, lineLength: 42 }, chunk: { chunkSize: 2 } }),
+    bundle: b({ wpm: 140, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, theme: 'sepia', display: { fontSize: 1.4, lineLength: 42 }, chunk: { chunkSize: 2 }, rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
   {
     id: 'builtin:open-access', name: 'Open Access', group: 'cross', builtin: true,
-    bundle: b({ wpm: 160, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, theme: 'sepia', display: { fontSize: 1.5, lineLength: 56 }, chunk: { chunkSize: 2 } }),
+    bundle: b({ wpm: 160, naturalPauses: true, mode: 'chunk', bionic: { enabled: true, intensity: 'high' }, theme: 'sepia', display: { fontSize: 1.5, lineLength: 56 }, chunk: { chunkSize: 2 }, rsvp: { ...DEFAULT_RSVP, showContext: false } }),
   },
 ];
 
@@ -313,6 +315,24 @@ test('createUserPreset infers group from bundle mode', () => {
   assert.equal(flowingPreset.group, 'flowing');
   assert.equal(rsvpPreset.group, 'rsvp');
   assert.equal(chunkPreset.group, 'chunk');
+});
+
+// 12. Non-RSVP built-ins explicitly set rsvp.showContext:false (issue #78)
+test('non-RSVP built-ins explicitly set rsvp.showContext:false', () => {
+  const nonRsvpIds = [
+    'builtin:deep-current',
+    'builtin:nightshift',
+    'builtin:first-contact',
+    'builtin:ironclad',
+    'builtin:onboarding-ramp',
+    'builtin:open-access',
+  ];
+  for (const id of nonRsvpIds) {
+    const preset = BUILTIN_PRESETS.find((p) => p.id === id);
+    assert.ok(preset, `preset ${id} not found`);
+    assert.notEqual(preset.bundle.mode, 'rsvp', `${id}: expected a non-RSVP mode`);
+    assert.equal(preset.bundle.rsvp.showContext, false, `${id}: expected rsvp.showContext === false`);
+  }
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
