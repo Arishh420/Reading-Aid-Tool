@@ -1449,6 +1449,86 @@ text/positioned-line data, not on extraction itself.
 
 ---
 
+### F35 — Pacer identity churn fixed across all consumers (issues #44, #45, #75): D56's destructuring pattern generalized from one consumer to ten effect sites in four files 📐 traced + 🧪 build-verified
+
+**Root cause (confirmed by reading `usePacer.ts` directly, not assumed):**
+`usePacer`'s returned object is `useMemo`'d with deps `[playing, atEnd, play,
+pause, toggle, restart, seek, subscribe]` (D56) — so every play/pause toggle
+(which flips `playing`, and `atEnd` on reaching the end) produces a **new**
+object identity, even though the individual members (`indexRef`, `subscribe`,
+etc.) are themselves stable across renders. `RsvpContextStrip.tsx` already
+avoided this by destructuring `{ subscribe, indexRef, seek }` from `pacer` and
+depending on those instead of the whole object (D56) — but every *other*
+pacer consumer still listed the whole `pacer` object in its effect deps, so a
+bare play/pause re-ran their effects for no functional reason. This single
+root cause produced three distinct symptoms tracked as separate issues: **#44**
+(App.tsx's 30s position-save `setInterval` torn down and recreated on every
+play/pause, narrowing the crash-loss safety margin issue #6 exists to
+provide — a user who toggles play/pause more often than every 30s never gets
+a periodic save), **#45** (Rsvp.tsx's pause-tick depletion animation
+restarted mid-dwell on pause), and **#75** (FlowingHighlight/ChunkHighlight's
+relayout effects re-ran `apply()` → `scrollWordToBand`, snapping the pane
+back to the active word on play/pause even after a deliberate manual scroll —
+the exact D85/F21 "scroll-centering only on real position change" contract
+this project already fixed once for a different trigger).
+
+**What was checked, per effect, before changing anything:** every effect in
+the four affected files that listed `pacer` in its dependency array — 10
+total (1 in `App.tsx`, 4 each in `FlowingHighlight.tsx`/`ChunkHighlight.tsx`,
+2 in `Rsvp.tsx`) — was read in full and confirmed to reference only
+`pacer.indexRef.current` and/or `pacer.subscribe(...)` in its body, never
+`pacer.playing`/`pacer.atEnd`/anything else. All 10 qualified for the same
+fix: swap `pacer` in the deps array for the specific stable member(s) the
+body actually uses, leaving the body itself untouched (mirrors how this same
+task's instructions described the App.tsx case as "a direct swap"). `indexRef`
+is a `useRef` created once inside `usePacer` (stable for the component's
+lifetime); `subscribe` is a `useCallback` with an empty dependency array
+(also stable) — so depending on either instead of the whole memoized object
+means the effect re-runs only on its real triggers (document change,
+bionic/typography change, window resize, initial subscription), never on a
+bare play/pause. `apply()`'s own definition in each mode file was confirmed
+unchanged and was already pacer-independent (`FlowingHighlight`/
+`ChunkHighlight`: deps `[updateLeadClasses]`/`[updateChunkClasses]`; `Rsvp`:
+empty deps) — none of these fixes touch it. One effect was deliberately left
+alone: `App.tsx`'s keyboard-shortcut handler (deps `[phase, pacer, words]`)
+re-attaches a `keydown` listener on every play/pause, which is a cheap,
+side-effect-free churn (a listener re-attach, nothing torn down that matters)
+— out of scope per the task and not one of the three tracked issues.
+
+**What was actually run (✅/🧪), not just reasoned about:**
+- `npm run build` (`tsc -b && vite build`): clean, 71 modules transformed, no
+  type errors, across all four edited files.
+- `node src/pacer/headless-test.mjs`: 13/13 passed, unchanged. **Caveat,
+  stated plainly rather than implied:** this suite tests `spaceTogglesFrom`
+  (`src/pacer/keyboard.ts`), the Space-key routing predicate — it does not
+  exercise `usePacer.ts`'s clock or any of the four edited components. It was
+  re-run only to confirm this fix left that unrelated module's behavior
+  unchanged (it did — no file in its import graph was touched), not as
+  evidence the identity-churn fix itself works.
+
+**What was traced by eye, not run (📐), and why nothing stronger exists here:**
+this repo has no test runner (no vitest/jest in `devDependencies`) and no
+`react-test-renderer`/jsdom, so the esbuild-bundle-and-import pattern this
+file uses elsewhere for pure-function modules (F20/F24/F26–F29/F32/F34)
+doesn't apply — none of the ten fixed call sites are pure functions; they're
+`useEffect`/`useLayoutEffect` bodies inside stateful React components, which
+need an actual renderer to execute. Each of the 10 dependency-array edits was
+verified by hand against the real body it governs (see above). This is the
+same evidentiary tier as F30/F31 (📐, not ✅ or 👁) — a correctness argument
+from reading the actual edited source, not an execution.
+
+**Not verified — needs browser confirmation, same class of gap as F22/F23's
+still-open interactive half:** whether a real play/pause cycle actually
+leaves the 30s save timer's interval untouched (#44); whether pausing
+mid-dwell in RSVP visibly no longer resets the pause-tick width (#45);
+whether a manual scroll away from the active word in flowing/chunk mode now
+survives a play/pause tap (#75). None of these three user-facing behaviors
+has been watched in an actual browser session.
+
+(2026-07-14, fix/pacer-identity-churn)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1556,6 +1636,21 @@ text/positioned-line data, not on extraction itself.
   15/15, pdfText 14/14, epubStructure 12/12, storage 14/14) re-run and still
   green. 🧪 build clean. Real-world file-through-browser-UI verification
   still outstanding, same caveat as F6/F7/F32/F33.
+- **F35** added (2026-07-14, issues #44/#45/#75): pacer identity churn — the
+  D56 destructuring pattern (depend on `pacer.indexRef`/`pacer.subscribe`,
+  not the whole memoized `pacer` object) was applied to one consumer
+  (`RsvpContextStrip.tsx`) but not the other four; every OTHER effect
+  depending on the whole object re-ran on every play/pause, producing three
+  symptoms fixed together: App.tsx's 30s save timer resetting (#44), RSVP's
+  pause-tick animation restarting mid-dwell (#45), and flowing/chunk panes
+  snap-recentering over a manual scroll (#75, a D85/F21 contract violation).
+  10 effect sites across 4 files audited and fixed (1 in App.tsx, 4 each in
+  FlowingHighlight.tsx/ChunkHighlight.tsx, 2 in Rsvp.tsx). 🧪 build clean;
+  the existing `pacer/headless-test.mjs` (13/13, unchanged) covers the
+  Space-key predicate only, not this fix. No test runner exists for React
+  effect behavior in this repo, so the fix itself is 📐 traced by hand
+  against each effect's real body, not ✅ run — browser confirmation of all
+  three user-facing symptoms is still outstanding.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 

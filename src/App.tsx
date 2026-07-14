@@ -211,7 +211,12 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pagehide', onPageHide);
     };
-  }, [phase, doc, fingerprint, words, pacer]);
+    // Depends on pacer.indexRef (stable ref object), not the whole `pacer`
+    // object — usePacer's memoized return only changes identity when
+    // playing/atEnd flip (D56), which would otherwise reset this 30s
+    // interval on every play/pause (issue #44). save() reads
+    // pacer.indexRef.current at call time, so this loses nothing.
+  }, [phase, doc, fingerprint, words, pacer.indexRef]);
 
   function handleLoad(loaded: Document, fp: string) {
     if (loaded.blocks.length === 0) {
