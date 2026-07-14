@@ -77,6 +77,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       theme: 'dim',
       display: { fontSize: 1.125, lineLength: 54 },
       flowing: { lead: 2 },
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
   {
@@ -91,6 +92,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       mode: 'flowing',
       bionic: { enabled: true, intensity: 'medium' },
       theme: 'dark',
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
   {
@@ -105,6 +107,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       mode: 'flowing',
       bionic: { enabled: true, intensity: 'medium' },
       theme: 'sepia',
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
   // ── RSVP ─────────────────────────────────────────────────────────
@@ -163,6 +166,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       mode: 'chunk',
       bionic: { enabled: true, intensity: 'high' },
       chunk: { chunkSize: 3 },
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
   {
@@ -179,6 +183,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       theme: 'sepia',
       display: { fontSize: 1.4, lineLength: 42 },
       chunk: { chunkSize: 2 },
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
   // ── CROSS-CUTTING ─────────────────────────────────────────────────
@@ -196,6 +201,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       theme: 'sepia',
       display: { fontSize: 1.5, lineLength: 56 },
       chunk: { chunkSize: 2 },
+      rsvp: { ...DEFAULT_RSVP, showContext: false },
     }),
   },
 ];

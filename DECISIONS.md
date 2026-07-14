@@ -1455,6 +1455,54 @@ why*, for anyone reading the superseded text.
   of a plain prop read) and was out of scope for a fix targeted at three
   specific, already-diagnosed symptoms. Fixes #44, #45, #75.
 
+## Bug-fix — Preset/D81 contradiction: non-RSVP built-ins silently inherited `rsvp.showContext:true` (issue #78)
+
+- **D103 · The six non-RSVP built-in presets now explicitly set
+  `rsvp: { ...DEFAULT_RSVP, showContext: false }`, closing the gap between
+  D81's stated intent and the shipped bundles — D81 itself is not amended.**
+  *Adversarial-audit finding (issue #78), not a user repro.* D81 rejected
+  storing `rsvp.showContext: true` in the chunk-mode Ironclad preset's bundle,
+  calling it "invisible state that would activate unexpectedly if the user
+  later switches the preset to RSVP mode." But `b()`'s bundle construction
+  (`{ ...DEFAULT_BUNDLE, ...overrides }`) means any built-in that doesn't
+  supply its own `rsvp` override inherits `DEFAULT_BUNDLE.rsvp` — i.e.
+  `DEFAULT_RSVP`, which has `showContext: true` — verbatim. None of the six
+  non-RSVP built-ins (Deep Current, Nightshift, First Contact — flowing;
+  Ironclad, Onboarding Ramp, Open Access — chunk) ever set `rsvp:` in their
+  `b({...})` call, so every one of them shipped with exactly the state D81
+  said should not exist. `bundlesEqual` compares `rsvp.showContext` (used for
+  `isModified` tracking), so this is live, compared state, not dead data —
+  the contradiction was real, not cosmetic.
+
+  **Why fix the code rather than amend D81 to bless the accidental default
+  (the issue's second proposed option):** D81's reasoning is still correct —
+  a chunk/flowing preset has no use for `showContext`, since the context
+  strip is RSVP-only by construction (D58/D59), and shipping the field as
+  `true` anyway means switching a loaded chunk/flowing preset's mode to RSVP
+  by hand (via the Mode dropdown, independent of the preset system) surfaces
+  a context strip the preset author never considered or endorsed. Amending
+  D81 would mean writing down that this accidental behavior is intentional,
+  which it demonstrably wasn't at the time D81 was decided.
+
+  **Implementation:** each of the six presets' `b({...})` call gained
+  `rsvp: { ...DEFAULT_RSVP, showContext: false }`. The spread of `DEFAULT_RSVP`
+  (rather than a bare `{ showContext: false }` object) is deliberate — only
+  `showContext` needed to differ from the default; spreading first means a
+  future change to `DEFAULT_RSVP`'s other fields (`fontSize`, `contextLines`)
+  still flows through to these six presets automatically, matching how the
+  RSVP-group built-ins (Afterburner/Laser/Steady Gaze) already override
+  `rsvp` — they build a full literal because all three fields differ from the
+  default for at least one of them, but the *shape* (a complete `RsvpSettings`
+  object, not a partial) is consistent with what's applied here.
+
+  **Scope:** only the three RSVP-group built-ins already set `rsvp.showContext`
+  meaningfully (`false` for Afterburner's pure-metronomic pitch, `true` for
+  Laser/Steady Gaze) — untouched, they were never part of the contradiction.
+  `DEFAULT_RSVP`/`DEFAULT_BUNDLE` are untouched — RSVP mode's own default
+  (`showContext: true`) for a user creating a fresh RSVP preset, or for the
+  app's own initial state, is unaffected. User-created presets are untouched;
+  this only changes the six hardcoded built-in bundles. Fixes #78.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
