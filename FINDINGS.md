@@ -1335,6 +1335,120 @@ confirm the fix reads correctly on genuine drifting-baseline text.
 
 ---
 
+### F34 — Spine integrity: three independent silent text-loss/leak bugs (issues #72, #73, #74), all ✅ headless-verified against the real bundled parsers
+
+An adversarial audit found each of the three parsers silently mutating the
+reading spine in a way `Word.id === flat index` (CLAUDE.md §4, D13) can't
+protect against — the invariant guarantees ids stay contiguous, but says
+nothing about whether the *content* is complete or clean. All three are
+independently proven fixed via a new shared suite,
+`src/parsers/spine-integrity-headless-test.mjs` (26/26), which esbuild-bundles
+the real `markdown.ts`, `pdfText.ts`, `epubStructure.ts`, and
+`model/tokenize.ts`, and — for the PDF/EPUB cases — wires `tokenize`/
+`reindexWords` exactly the way the real `pdf.ts`/`epub.ts` wrappers do, so the
+contiguity checks below exercise the true end-to-end pipeline, not just the
+pure text layer.
+
+**#72 (markdown, token deletion):** `blockify`'s list-continuation loop
+(`markdown.ts`, previously lines 161–167) called the unrestricted
+`matchListItem` on every following line while inside an already-open list, so
+a hard-wrapped line like "1945. Everyone celebrated." — appearing right after
+a list item, no blank line between — was misread as a new ordered-list marker
+and "1945." was deleted outright. The existing D90 guard
+(`Number(ordered[1]) === 1`) only protected the *paragraph-interruption* path,
+not this loop — a different door onto the same corruption class as #41.
+
+Fix has two coupled parts (see D101 for the full design reasoning): (1) the
+continuation loop now only treats a following line as a genuine continuation
+if it's a bullet (unrestricted, per D90) or an ordered marker that's a
+*plausible* continuation — starts at 1, or is exactly one more than the
+previous item's number (so a list starting at 5 can continue 6, 7, 8…, not
+just lists starting at 1). (2) A line rejected by that check is marked via a
+`forcedParagraphAt` index so the *top-level* list dispatch — deliberately left
+unrestricted by D90 for the legitimate "a fresh list may start at any number"
+case — doesn't immediately re-swallow the very same rejected line as a
+brand-new one-item list on the next loop iteration (which, traced through by
+hand before writing the fix, is exactly what happens without part 2: the
+number gets stripped a second time, by a different code path than the one
+that rejected it).
+
+**#73 (PDF, token deletion):** `isBarePageNumber`'s roman-numeral branch
+(`/^[ivxlcdm]{1,8}$/i`) was applied to every surviving line on a page, not
+just page edges — so ordinary words spelled only from roman-numeral letters
+("did", "Civil", "I", "mild", "livid") were silently dropped wherever they
+appeared, not just at a genuine folio position. Fix: `isBarePageNumber` takes
+a second `isEdge` parameter (default `false`, so any caller that omits it gets
+the *safe* behavior — no roman-numeral matches at all — rather than the old
+unsafe one); the roman-numeral branch alone is gated on it
+(`isEdge && /^[ivxlcdm]{1,8}$/i.test(t)`). The plain-digit, dashed, and
+"Page N" branches were left ungated as scoped — they weren't found to share
+the anywhere-on-the-page false-positive risk (a bare "12" or "Page 12"
+appearing as ordinary prose mid-page is a materially rarer collision than a
+common short English word matching `ivxlcdm`). The call site
+(`linesToParagraphs`) already computed an equivalent `isEdge` for the
+repeated-header/footer check one line below; it was hoisted above the
+`isBarePageNumber` call and reused for both, no duplicate logic.
+
+**Residual, accepted risk (not a new bug, inherent to any position-based
+heuristic):** a real word that happens to *be* the literal first or last line
+of a page (e.g. a poem fragment or a page break mid-word) and is coincidentally
+spelled only from `ivxlcdm` letters would still be dropped — same class of
+false positive the pre-existing repeated-header/footer detection already
+accepts by construction (also `isEdge`-gated). The issue's own proposed fix
+("restrict to genuine folio positions") is exactly this trade-off, not a gap
+introduced by this pass.
+
+**#74 (EPUB, token injection):** `stripTags` (`epubStructure.ts`) only ever
+stripped `<...>` brackets themselves, so the *contents* of `<script>`/
+`<style>` elements (CSS/JS text) and everything after a comment's first
+literal `>` survived as reading tokens — garbage injected into the spine, the
+inverse failure mode of #72/#73's deletions. Fix: three new `.replace()` calls
+— comments (`/<!--[\s\S]*?-->/g`), then `<script>…</script>`, then
+`<style>…</style>`, all removed *whole* (tag + contents) — run before the
+existing generic `<[^>]+>` bracket-stripping pass, so by the time that pass
+runs there's no non-prose content left for it to accidentally leave behind.
+Comments are stripped first specifically so a comment containing something
+that looks like a `<script>`/`<style>` open tag can't confuse the later
+passes (not exercised by a specific test — a defensive ordering choice, not a
+proven-necessary one).
+
+**What was actually run, not just reasoned about:** 26 checks in the new
+suite — 7 for #72 (the exact repro; a non-sequential ordered marker
+mid-established-list, proving the fix isn't bullet-list-only; a sequential
+non-1-start regression proving D90's existing "list starting at 5" behavior
+survives; a plain bullet-list regression), 12 for #73 (7 direct
+`isBarePageNumber(s, isEdge)` contract checks covering every branch's
+edge-gating status, plus 5 full-pipeline `linesToParagraphs` checks: "did" and
+"Civil" mid-page survive, genuine roman folios at both page-start and
+page-end edges are still dropped), and 7 for #74 (4 direct `stripTags` checks
+—style, comment-with-internal-`>`, script, and an entity/ordinary-tag
+regression — plus 2 full-pipeline `xhtmlToBlocks` checks reproducing the
+issue's exact repro strings, plus 1 contiguity check on the resulting
+document). Interleaved with those: 4 explicit `Word.id === flat index`
+contiguity checks (one for the #72 repro, one for the #72 non-sequential
+case, one for the #73 "did" repro, one for the #74 style repro), each
+built through the *real* `tokenize`/`reindexWords` wiring mirroring
+`pdf.ts`/`epub.ts`, not asserted by inspection.
+
+All three pre-existing suites (markdown 15/15, pdfText 14/14, epubStructure
+12/12) plus the storage suite (14/14) were re-run after all three fixes and
+remain green — none of the new guards changed any previously-correct output.
+🧪 `npm run build` (`tsc -b && vite build`) clean — 71 modules transformed, no
+type errors.
+
+**Not verified — same caveat as every other parser entry in this file
+(F6/F7/F32/F33):** these fixes are proven against synthetic inputs covering
+the issues' exact repro shapes plus targeted regressions; none has been
+exercised against a real-world Markdown/PDF/EPUB file loaded through the
+actual browser UI. The pdf.js extraction path and real-world EPUB markup
+variety remain ❓ as documented elsewhere in this file — unaffected by this
+fix either way, since all three changes operate purely on already-extracted
+text/positioned-line data, not on extraction itself.
+
+(2026-07-14, fix/spine-integrity)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1425,6 +1539,23 @@ confirm the fix reads correctly on genuine drifting-baseline text.
   the 14/14 `pdf-headless-test.mjs` integration checks are regression
   guards, not confirmation this fix resolves previously-observed scrambling.
   🧪 build clean; all four pre-existing suites re-run and still green.
+- **F34** added (2026-07-14, issues #72/#73/#74): three independent spine
+  corruption bugs fixed together — markdown's list-continuation loop deleted
+  a hard-wrapped numeric line following a list item (#72, fixed by requiring
+  a plausible continuation — starts at 1 or sequential — plus a
+  `forcedParagraphAt` guard so the top-level list dispatch can't re-swallow
+  the rejected line, see D101); PDF's `isBarePageNumber` dropped ordinary
+  roman-numeral-letter words ("did", "Civil") anywhere on a page instead of
+  only at genuine folio edges (#73, fixed with an `isEdge` parameter gating
+  only the roman-numeral branch); EPUB's `stripTags` leaked `<script>`/
+  `<style>` bodies and comment contents into the reading spine (#74, fixed
+  by stripping them whole before the generic tag pass). New shared suite
+  `src/parsers/spine-integrity-headless-test.mjs`, 26/26, including four
+  `Word.id === flat index` contiguity checks built through the real
+  `tokenize`/`reindexWords` wiring. All four pre-existing suites (markdown
+  15/15, pdfText 14/14, epubStructure 12/12, storage 14/14) re-run and still
+  green. 🧪 build clean. Real-world file-through-browser-UI verification
+  still outstanding, same caveat as F6/F7/F32/F33.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 

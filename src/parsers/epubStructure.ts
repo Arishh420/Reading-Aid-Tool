@@ -48,9 +48,18 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/** Strip tags + decode entities + collapse whitespace from an HTML fragment. */
+/**
+ * Strip tags + decode entities + collapse whitespace from an HTML fragment.
+ * `<script>`/`<style>` bodies and HTML comment contents are removed whole,
+ * before the generic bracket-stripping pass — otherwise their non-prose
+ * contents (CSS, JS, comment text) survive as reading tokens (issue #74).
+ */
 export function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, ' '))
+  const withoutNonText = html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ');
+  return decodeEntities(withoutNonText.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim();
 }

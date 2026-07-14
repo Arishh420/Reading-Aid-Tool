@@ -110,6 +110,12 @@ function blockify(source: string): RawBlock[] {
   const lines = source.replace(/\r\n?/g, '\n').split('\n');
   const blocks: RawBlock[] = [];
   let i = 0;
+  // Set when the list-continuation loop rejects a line that syntactically
+  // matches an ordered marker but isn't a plausible continuation (#72) — the
+  // top-level list dispatch below is otherwise unrestricted (a fresh list may
+  // legitimately start at any number) and would immediately re-swallow the
+  // very same line as a new one-item list, stripping the "marker" again.
+  let forcedParagraphAt = -1;
 
   const flushParagraph = (parts: string[]) => {
     const text = stripInline(parts.join(' '));
@@ -158,11 +164,36 @@ function blockify(source: string): RawBlock[] {
     }
 
     // List — each item becomes its own paragraph (v1 has no list block type).
-    if (isListItem(line)) {
+    if (i !== forcedParagraphAt && isListItem(line)) {
+      let firstItem = true;
+      // Number of the last-consumed item, if it was ordered; null once a
+      // bullet is consumed or before the first ordered item. Used to decide
+      // whether a later ordered-looking line is a genuine continuation
+      // (issue #72) — bullets are unrestricted (always continue), matching
+      // their unconditional behavior everywhere else in this parser.
+      let lastOrdered: number | null = null;
       while (i < lines.length) {
-        const itemText = matchListItem(lines[i]);
-        if (itemText === null) break;
-        flushParagraph([itemText]);
+        const l = lines[i];
+        const bullet = l.match(BULLET_ITEM);
+        const ordered = bullet ? null : l.match(ORDERED_ITEM);
+        if (!bullet && !ordered) break; // not a list-item line — ends the list
+
+        if (!firstItem && ordered) {
+          const n = Number(ordered[1]);
+          const continues = lastOrdered === null ? n === 1 : n === lastOrdered + 1;
+          if (!continues) {
+            // Syntactically a marker, but not a plausible continuation (e.g.
+            // a hard-wrapped sentence-initial number) — stop the list without
+            // consuming this line, and mark it so the fresh top-level
+            // dispatch doesn't re-match it as a new list on the next pass.
+            forcedParagraphAt = i;
+            break;
+          }
+        }
+
+        flushParagraph([bullet ? bullet[1] : ordered![2]]);
+        lastOrdered = ordered ? Number(ordered[1]) : null;
+        firstItem = false;
         i++;
       }
       continue;

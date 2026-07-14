@@ -1305,6 +1305,71 @@ why*, for anyone reading the superseded text.
   exported (the only permitted API-surface change) solely to make the
   comparator testable in isolation from `pdfjs-dist`. Fixes #13.
 
+## Bug-fix — Spine integrity: three silent text-corruption bugs (issues #72, #73, #74)
+
+- **D101 · Markdown list-continuation: a following ordered marker only
+  continues the list if it starts at 1 or is exactly the previous item's
+  number + 1; a rejected-but-marker-shaped line is flagged so the top-level
+  dispatch can't re-swallow it.** *Adversarial-audit finding (issue #72), a
+  real design choice beyond "match the described fix" — the issue explicitly
+  left the exact continuation rule to judgment.* `blockify`'s
+  list-continuation loop called the unrestricted `matchListItem` on every
+  following line, so a hard-wrapped numeric line right after a list item
+  (e.g. `- The war ended in` / `1945. Everyone celebrated.`, no blank line
+  between) was misread as the list's next ordered item and "1945." was
+  deleted as a marker — the same corruption class D90 fixed for
+  paragraph-interruption, recurring through a different, unguarded door.
+
+  **The rule chosen:** bullets are unrestricted (continue unconditionally,
+  matching D90's "bullets always interrupt/continue"); an ordered marker
+  continues only if its number is `1` (mirrors D90's paragraph-interruption
+  rule) **or** is exactly one more than the previous item's number — chosen
+  specifically so a list that legitimately starts away from 1 (the existing
+  `'5. Fifth\n6. Sixth'` case, protected by the #41 headless suite) keeps
+  working when the loop hits its second, third, … item, not just when the
+  top-level dispatch admits the first one. A number that satisfies neither
+  condition is treated as ordinary wrapped text, not consumed.
+
+  **The harder half of the fix, found by tracing the naive version through
+  by hand before committing to it:** rejecting the line inside the
+  continuation loop and simply `continue`-ing the outer dispatch loop is
+  *not* sufficient on its own. The top-level list dispatch (`isListItem` at
+  the top of `blockify`'s main loop) is deliberately left unrestricted per
+  D90 — an ordered marker may legitimately start a *fresh* list at any
+  number, e.g. right after a blank line or at the top of a document — and it
+  re-examines the very same line the continuation loop just rejected. Traced
+  concretely: without a second guard, "1945. Everyone celebrated." gets
+  rejected as a *continuation* of the bullet list, control returns to the
+  top-level dispatch on the same line, `isListItem` matches it again (it's
+  syntactically a valid ordered marker), and a *brand-new* one-item list
+  swallows it, stripping "1945." a second time via a different code path
+  than the one that just rejected it — reproducing the exact bug the first
+  guard was meant to fix. Fix: a `forcedParagraphAt` index, set to the
+  rejected line's position right before the continuation loop breaks; the
+  top-level dispatch condition becomes `i !== forcedParagraphAt &&
+  isListItem(line)`, so that one line falls through to the ordinary
+  paragraph-merge path instead (which already handles it correctly via the
+  existing D90 `interruptsParagraph` guard, unaffected by this change).
+  Because `i` only ever increases through `blockify`, the flag can never
+  spuriously suppress a later, unrelated line at the same index.
+
+  Bullet-item recognition and handling is unchanged (still unconditional,
+  as before this fix) — only the ordered-item continuation path gained the
+  plausibility check, per the task's explicit constraint.
+
+  Alternative rejected: requiring every ordered continuation to start at 1
+  (no sequential-increment allowance) — simpler, but would break the
+  existing "list starting at 5" case (`'5. Fifth\n6. Sixth'`) the moment the
+  loop reached its *second* item, even though the top-level dispatch already
+  permits that list to start. Alternative rejected: blank-line-agnostic
+  marker-type matching (treating a bullet-to-ordered or vice-versa switch as
+  automatic continuation) — not needed to fix #72 and would widen scope
+  beyond the reported bug. Fixes #72.
+
+  (#73 and #74, fixed in the same pass, were mechanical — the issues
+  specified the exact restriction/stripping needed and no further judgment
+  call was made, so no entry for them here; see FINDINGS F34 for both.)
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
