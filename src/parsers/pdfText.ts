@@ -19,12 +19,19 @@ export interface PdfLine {
   gapBefore: boolean;
 }
 
-/** A bare page number / running folio that should be dropped. */
-export function isBarePageNumber(s: string): boolean {
+/**
+ * A bare page number / running folio that should be dropped. `isEdge`
+ * (first/last surviving line of the page) gates only the roman-numeral
+ * branch — a roman-numeral string collides with ordinary short words ("did",
+ * "Civil", "I", "mild"), so recognizing it anywhere on the page silently
+ * drops real text (issue #73). The other branches (plain digit, dashed,
+ * "Page N") are unambiguous enough to keep checking anywhere on the page.
+ */
+export function isBarePageNumber(s: string, isEdge = false): boolean {
   const t = s.trim();
   if (!t) return false;
   if (/^\d{1,4}$/.test(t)) return true; // 12
-  if (/^[ivxlcdm]{1,8}$/i.test(t)) return true; // xiv
+  if (isEdge && /^[ivxlcdm]{1,8}$/i.test(t)) return true; // xiv — edge only, see #73
   if (/^[-–—]\s*\d{1,4}\s*[-–—]$/.test(t)) return true; // - 12 -
   if (/^(page|p\.?)\s*\d{1,4}$/i.test(t)) return true; // Page 12
   return false;
@@ -79,8 +86,8 @@ export function linesToParagraphs(pages: PdfLine[][]): string[] {
     page.forEach((line, i) => {
       const t = line.text.trim();
       if (!t) return;
-      if (isBarePageNumber(t)) return;
       const isEdge = i === 0 || i === page.length - 1;
+      if (isBarePageNumber(t, isEdge)) return;
       if (isEdge && repeated.has(t)) return;
       survivors.push({ ...line, text: t });
     });
