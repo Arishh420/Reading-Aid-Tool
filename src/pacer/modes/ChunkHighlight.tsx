@@ -116,23 +116,29 @@ export function ChunkHighlight({
     [updateChunkClasses], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer, apply]);
+  // Depends on pacer.subscribe (stable), not `pacer` itself — usePacer's
+  // memoized return only changes identity when playing/atEnd flip (D56),
+  // which would otherwise re-subscribe on every play/pause for no reason.
+  useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer.subscribe, apply]);
 
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useLayoutEffect(() => {
     lineTopRef.current = null;
     const raf = requestAnimationFrame(() => apply(pacer.indexRef.current, false));
     return () => cancelAnimationFrame(raf);
-  }, [document, pacer, apply]);
+  }, [document, pacer.indexRef, apply]);
 
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useLayoutEffect(() => {
     apply(pacer.indexRef.current, false);
-  }, [bionic, settings.chunkSize, layoutKey, pacer, apply]);
+  }, [bionic, settings.chunkSize, layoutKey, pacer.indexRef, apply]);
 
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useEffect(() => {
     const onResize = () => apply(pacer.indexRef.current, false);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [pacer, apply]);
+  }, [pacer.indexRef, apply]);
 
   return (
     <Reader

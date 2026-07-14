@@ -142,28 +142,34 @@ export function FlowingHighlight({
   );
 
   // Subscribe to the pacer; reposition the overlay imperatively on each word.
-  useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer, apply]);
+  // Depends on pacer.subscribe (stable), not `pacer` itself — usePacer's
+  // memoized return only changes identity when playing/atEnd flip (D56),
+  // which would otherwise re-subscribe on every play/pause for no reason.
+  useEffect(() => pacer.subscribe((i) => apply(i, true)), [pacer.subscribe, apply]);
 
   // Place the overlay at the start when the document changes (reset line track).
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useLayoutEffect(() => {
     lineTopRef.current = null;
     const raf = requestAnimationFrame(() =>
       apply(pacer.indexRef.current, false),
     );
     return () => cancelAnimationFrame(raf);
-  }, [document, pacer, apply]);
+  }, [document, pacer.indexRef, apply]);
 
   // Reposition (no scroll reset) when wrapping/lead/typography can change layout.
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useLayoutEffect(() => {
     apply(pacer.indexRef.current, false);
-  }, [bionic, settings.lead, layoutKey, pacer, apply]);
+  }, [bionic, settings.lead, layoutKey, pacer.indexRef, apply]);
 
   // Keep the overlay glued through viewport resizes.
+  // Depends on pacer.indexRef (stable ref object) — see subscribe effect above.
   useEffect(() => {
     const onResize = () => apply(pacer.indexRef.current, false);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [pacer, apply]);
+  }, [pacer.indexRef, apply]);
 
   return (
     <Reader

@@ -1370,6 +1370,91 @@ why*, for anyone reading the superseded text.
   specified the exact restriction/stripping needed and no further judgment
   call was made, so no entry for them here; see FINDINGS F34 for both.)
 
+## Bug-fix — Pacer identity churn resets consumer effects on play/pause (issues #44, #45, #75)
+
+- **D102 · D56's destructured-dependency pattern generalized from one pacer
+  consumer to every pacer consumer; inline property-access in the dependency
+  array chosen over a top-level destructure.** *Adversarial-audit finding
+  (issues #44, #45, #75), same root cause behind three separately-tracked
+  symptoms, fixed together.* `usePacer`'s returned object is `useMemo`'d to
+  change identity only when `playing`/`atEnd` flip (D56) — a deliberate
+  optimization so consumers that depend on `pacer` don't re-run on every
+  unrelated parent render. D56 itself already worked around the remaining
+  churn for `RsvpContextStrip.tsx` by destructuring the stable members
+  (`subscribe`, `indexRef`, `seek`) out of `pacer` and depending on those
+  instead of the object — but that pattern was applied to exactly one
+  consumer. Every other effect across `App.tsx` (1 site),
+  `FlowingHighlight.tsx` (4 sites), `ChunkHighlight.tsx` (4 sites), and
+  `Rsvp.tsx` (2 sites) — 10 in total — still depended on the whole `pacer`
+  object, so a bare play/pause toggle re-ran all of them, producing: #44
+  (the 30s position-save `setInterval` torn down and recreated every
+  play/pause, narrowing issue #6's crash-loss safety margin for anyone who
+  toggles play/pause faster than 30s); #45 (RSVP's pause-tick depletion
+  animation restarting from full width mid-dwell on pause); and #75
+  (flowing/chunk's relayout effects re-running `apply()` →
+  `scrollWordToBand`, snapping the pane back to the pacer's position on
+  play/pause even after a deliberate manual scroll — reopening, for a new
+  trigger, the exact class of bug D85/F21 already fixed for virtualizer
+  remounts).
+
+  Each of the 10 sites was read in full before editing, per instruction, and
+  confirmed to read only `pacer.indexRef.current` and/or call
+  `pacer.subscribe(...)` — never `pacer.playing`/`pacer.atEnd` — so none
+  needed the whole object. The fix: replace `pacer` in each effect's
+  dependency array with the specific member(s) its body actually uses
+  (`pacer.indexRef` and/or `pacer.subscribe`), leaving every effect body
+  itself unchanged. Both members are stable references for the component's
+  lifetime (`indexRef` is a `useRef` created once inside `usePacer`;
+  `subscribe` is a `useCallback` with an empty dependency array), so this
+  loses no correctness — the effect still re-runs on every trigger it should
+  (document change, bionic/typography change, window resize, initial
+  subscription) — while no longer re-running on a bare play/pause. `apply()`'s
+  own definition in each mode file was left untouched; it was already
+  pacer-independent (`FlowingHighlight`/`ChunkHighlight`: deps
+  `[updateLeadClasses]`/`[updateChunkClasses]`; `Rsvp`: empty deps).
+
+  **One site was deliberately left alone, not folded in by default:**
+  `App.tsx`'s keyboard-shortcut effect (deps `[phase, pacer, words]`) also
+  depends on the whole `pacer` object and also churns on every play/pause,
+  but its only effect is re-attaching a `window.keydown` listener — no
+  interval, no animation, no scroll state to reset. That churn is
+  functionally inert, isn't one of the three tracked issues, and folding it
+  in without a reason would be scope creep beyond what was asked.
+
+  **Inline property access (`pacer.indexRef`, `pacer.subscribe`) chosen over
+  a top-level destructure (`const { subscribe, indexRef } = pacer`), despite
+  `RsvpContextStrip.tsx` using the latter.** Both are equally correct — a
+  dependency array entry and a destructured local binding pointing at the
+  same stable object compare identically under `Object.is`. Inline access
+  was chosen because it's a strictly smaller diff: each fix touches only the
+  dependency array of the effect it governs, with the body's existing
+  `pacer.X` references left completely alone, versus a destructure which
+  would also require rewriting every reference inside each body from
+  `pacer.X` to the bare destructured name. For 10 sites across 4 files, that
+  difference is material, and the smaller diff is easier to audit
+  line-by-line against "did this effect actually need `pacer.playing`/
+  `pacer.atEnd` anywhere" — the exact question this fix depended on
+  answering correctly for each site. `RsvpContextStrip.tsx` is left as-is
+  (already correct, per D56) rather than converted to match this style —
+  rewriting already-correct code for stylistic consistency alone was out of
+  scope.
+
+  **`usePacer.ts`'s own memoization (D56) is unchanged.** The bug was
+  consumers over-depending on the memoized object, not a flaw in the memo
+  itself — D56's design (change identity only on `playing`/`atEnd`) remains
+  correct and is the thing this fix's dependency-array narrowing is built on
+  top of.
+
+  Alternative rejected: dropping D56's memoization and instead giving
+  `usePacer` a permanently-stable return identity (e.g., returning a ref to a
+  mutable object instead of a fresh object per render) — would fix the churn
+  at the source for every current and future consumer without per-site
+  auditing, but changes `PacerApi`'s consumption contract (reading
+  `pacer.playing`/`pacer.atEnd` in a render body, e.g. for a disabled-button
+  style, would then require a fresh subscription/re-render mechanism instead
+  of a plain prop read) and was out of scope for a fix targeted at three
+  specific, already-diagnosed symptoms. Fixes #44, #45, #75.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

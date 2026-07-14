@@ -99,15 +99,20 @@ export function Rsvp({
     }
   }, []);
 
+  // Depends on pacer.indexRef/pacer.subscribe (stable), not `pacer` itself —
+  // usePacer's memoized return only changes identity when playing/atEnd flip
+  // (D56), which would otherwise re-run this on every play/pause and snap the
+  // pause-tick animation back to full width mid-dwell (issue #45).
   useEffect(() => {
     apply(pacer.indexRef.current);
     return pacer.subscribe(apply);
-  }, [pacer, apply]);
+  }, [pacer.indexRef, pacer.subscribe, apply]);
 
   // Re-render the current word if the font size changes the layout.
+  // Depends on pacer.indexRef (stable ref object) — see effect above.
   useEffect(() => {
     apply(pacer.indexRef.current);
-  }, [settings.fontSize, naturalPauses, pacer, apply]);
+  }, [settings.fontSize, naturalPauses, pacer.indexRef, apply]);
 
   return (
     <div className="rsvp-stage" style={{ fontSize: `${settings.fontSize}rem` }}>
