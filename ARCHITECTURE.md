@@ -38,9 +38,14 @@ single flattened `Word[]`; the current position is one integer index into it.
 
 `Document → Block[] → Word[]`.
 
-- **`Word`** = `{ id, text, isWordlike }`. `text` is the raw token *including*
-  attached punctuation. `isWordlike` is `false` for pure punctuation/symbol
-  tokens (the pacer skips them; bionic ignores them).
+- **`Word`** = `{ id, text, isWordlike, spaceBefore }`. `text` is the raw token
+  *including* attached punctuation. `isWordlike` is `false` for pure
+  punctuation/symbol tokens (the pacer skips them; bionic ignores them).
+  `spaceBefore` (issue #25) is `false` only for the right-hand continuation
+  piece of a tokenizer-side dash split (see Tokenizer below); every other
+  token is `true`. Renderers that re-insert inter-token whitespace
+  (`Reader.tsx`, `RsvpContextStrip.tsx`) gate that space on `spaceBefore` so a
+  split token renders flush against its neighbor with no invented space.
 - **`id` is the flat index, as a string.** `reindexWords()` guarantees ids are
   contiguous `"0".."N-1"` across the whole document in reading order. This is a
   deliberate invariant exploited everywhere: the pacer's `currentWordIndex`
@@ -60,9 +65,22 @@ separately purely for layout.
   word-like if it contains any Unicode letter or number (`/[\p{L}\p{N}]/u`).
   Attached punctuation stays on the token (splitting it is bionic's job, not the
   tokenizer's).
+- **Dash-run split (issue #25).** After the whitespace split, each token is
+  further split at a run of em/en dashes (`[–—]+`) via `splitDashRuns` — but
+  only when there's a character on both sides of the run (a leading/
+  trailing/bare dash is left alone) and the immediately-flanking characters
+  aren't both digits (a numeric range like `1914–1918` stays one token).
+  Hyphen-minus (`-`) is never split this way — `well-known` stays one token.
+  The dash run stays attached to the LEFT piece (`"going—"` / `"but"`), which
+  means `trailingDwell` (dwell.ts) already reads the attached dash as trailing
+  punctuation with no special-case. The right-hand continuation piece gets
+  `spaceBefore: false`; this exists because RSVP flashing one word at a time
+  never needed it before, but the flowing/chunk renderers re-insert a literal
+  space between tokens and must not do so across a dash split.
 - `flattenWords(doc)` → the reading-order spine the pacer walks.
 - `reindexWords(blocks)` → assigns the contiguous flat ids. Parsers tokenize
-  blocks independently, then call this once.
+  blocks independently, then call this once. The `{ ...word, id }` spread
+  carries `spaceBefore` through re-indexing untouched.
 
 **Portable.** Pure string/array logic, no platform deps.
 
@@ -181,6 +199,16 @@ it for free**:
   end) → 3× | otherwise 1×. Trailing closing quotes/brackets are ignored
   (`end."` reads as a sentence end).
 - `buildDwellMultipliers(doc)` → `number[]` indexed by flat word id.
+- **Skipped-punctuation roll-up (issue #25).** A standalone non-word-like
+  token (e.g. a spaced `—`) is skipped by the pacer's `firstWordlikeFrom`, so
+  its own dwell entry is never reached. Each word-like token's dwell is the
+  MAX of its own `trailingDwell` and the `trailingDwell` of every
+  non-word-like token immediately following it in the same block — the exact
+  run the pacer will skip over on its next advance. MAX (not overwrite)
+  keeps a sentence-end pause (2.5×) from being downgraded by a lower-priority
+  trailing dash (1.75×) that happens to follow. The paragraph-end rule (last
+  word-like token of a block → 3×, unconditional) still takes priority over
+  the roll-up.
 - Gated by the **"Natural pauses"** toggle (default ON). Off ⇒ pure metronomic.
 
 **Portable.** Pure functions over the model.
@@ -599,3 +627,16 @@ Markdown parser is portable.
   strings before `reindexWords`. 13/13 new headless-verified against the
   real bundled parser, plus all pre-existing parser/storage suites re-run
   clean (FINDINGS F32).
+- **RSVP em/en-dash tokenization bug-fix** (issue #25, 2026-07-16): `tokenize()`
+  (`model/tokenize.ts`) now splits an attached em/en-dash run (`"going—but"`)
+  into two tokens, dash kept on the left piece, guarded against leading/
+  trailing/bare dashes and digit-flanked numeric ranges (D106); `Word` gained
+  a `spaceBefore` field so the two existing whitespace-rejoining renderers
+  (`Reader.tsx`, `RsvpContextStrip.tsx`) don't insert a space across a split
+  (D107); `buildDwellMultipliers` (`pacer/dwell.ts`) now rolls up (via MAX) a
+  skipped non-word-like token's dwell onto the preceding word-like token, so
+  a spaced dash's pause survives even though RSVP never renders the dash
+  itself (D108). All three changes are in the portable layer. 17/17 + 5/5
+  new headless-verified against the real bundled `tokenize`/
+  `buildDwellMultipliers`, all 9 pre-existing suites re-run clean (FINDINGS
+  F38).

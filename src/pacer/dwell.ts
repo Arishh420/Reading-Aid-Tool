@@ -12,6 +12,14 @@ import type { Document } from '../model/types';
  *   . ! ? …                   -> 2.5x
  *   last word of block        -> 3x
  *   no trailing punctuation   -> 1x
+ *
+ * A standalone punctuation token (e.g. a spaced "—") is `isWordlike: false`,
+ * so the pacer's `firstWordlikeFrom` skips it and never lands on its index —
+ * its own dwell entry would be dead. To keep the pause perceptible anyway
+ * (issue #25), each word-like token's dwell rolls up the MAX of its own
+ * `trailingDwell` and the `trailingDwell` of every non-word-like token
+ * immediately following it (the run the pacer will skip over), so the pause
+ * is felt on the word right before the skipped run instead of being lost.
  */
 
 export const DWELL_CLAUSE = 1.75;
@@ -46,8 +54,19 @@ export function buildDwellMultipliers(doc: Document): number[] {
       if (w.isWordlike) lastWordlikePos = i;
     });
     block.words.forEach((w, i) => {
-      result[Number(w.id)] =
-        i === lastWordlikePos ? DWELL_PARAGRAPH : trailingDwell(w.text);
+      if (!w.isWordlike) {
+        result[Number(w.id)] = trailingDwell(w.text);
+        return;
+      }
+      if (i === lastWordlikePos) {
+        result[Number(w.id)] = DWELL_PARAGRAPH;
+        return;
+      }
+      let dwell = trailingDwell(w.text);
+      for (let j = i + 1; j < block.words.length && !block.words[j].isWordlike; j++) {
+        dwell = Math.max(dwell, trailingDwell(block.words[j].text));
+      }
+      result[Number(w.id)] = dwell;
     });
   }
   return result;
