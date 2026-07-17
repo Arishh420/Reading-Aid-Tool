@@ -1503,6 +1503,220 @@ why*, for anyone reading the superseded text.
   app's own initial state, is unaffected. User-created presets are untouched;
   this only changes the six hardcoded built-in bundles. Fixes #78.
 
+## Bug-fix — Resume history-snapshot wordCount drift (issue #76)
+
+- **D104 · `storage/headless-test.mjs` converted to exercise the real
+  `saveReadingPosition`/`loadBookRecord` via a Map-backed `localStorage`
+  stub, instead of continuing to hand-mirror the logic.** *Judgment call,
+  offered as optional in the task ("only if it's clean and doesn't risk
+  destabilizing the suite's other tests... if it looks like more than a
+  small addition, skip it").* The core #76 fix itself — adding
+  `wordCount?: number` to `PositionSnapshot`, populating it in
+  `saveReadingPosition`, and changing `handleResume` (`App.tsx`) to
+  drift-check against `snapshot.wordCount ?? resumeRecord?.wordCount` instead
+  of only the record-level value — was mechanical, following the task's own
+  proposed shape directly; not logged here separately.
+
+  The stub itself is ~15 lines (`getItem`/`setItem`/`removeItem`/`clear`
+  backed by a `Map`, matching real `localStorage`'s string-in/string-out
+  contract) assigned to `globalThis.localStorage` before the bundled
+  `readingPosition.ts` module is imported via the existing
+  esbuild-bundle-and-import pattern (`bundleAndImport`, already used by the
+  parser suites — F24/F26–F29/F32/F34). Confirmed safe to sequence this way
+  by reading `storage.ts` directly: it calls `localStorage` only inside
+  `storageGet`/`storageSet`/`storageRemove`'s function bodies, never at
+  module top level, so there's no import-order hazard between stubbing and
+  importing.
+
+  **Why worth doing, not just "why it was possible":** tests 1–4 and 10 now
+  prove the actual shipped `saveReadingPosition`/`loadBookRecord` behavior —
+  including the exact new `wordCount` field this fix adds — rather than a
+  hand-copied restatement of the pre-fix logic that would need to be kept in
+  sync by hand on every future change to `readingPosition.ts` (the drift risk
+  the newer parser suites were already written to avoid). This is a strictly
+  stronger guarantee for the same test count. Test 15 (the new #76 repro)
+  specifically depends on this: it constructs a 3-save sequence and asserts
+  on the real `BookRecord.history` array's actual shape (gate behavior,
+  eviction, per-entry `wordCount`) — replicating that shape by hand in a
+  mirror would itself be exactly the kind of "trust the mirror is still
+  faithful" risk this change removes.
+
+  **Scope kept deliberately narrow, per the task's own caution:** two pieces
+  of logic remain mirrored, each for a reason that doesn't go away with a
+  localStorage stub: `fingerprintFromBytes` (the real `computeFingerprint`
+  requires `crypto.subtle`, operating on a browser `File` — no Node
+  equivalent to stub trivially) and `resolveResumeTarget` (mirrors
+  `handleResume`, a React component method closing over component state —
+  there is no pure function to import, stub or no stub). Converting those
+  two was out of scope for this task and would be a materially larger,
+  separate effort (a DOM/File shim for the former; a React test renderer for
+  the latter — this repo has neither, per F30/F31's same observation).
+  Alternative rejected: leave `storage/headless-test.mjs` as a pure mirror,
+  matching F26's original approach — valid and was the task's explicit
+  fallback, but the stub turned out small enough that the stronger guarantee
+  was worth taking.
+
+## Bug-fix — RSVP anchors on a bare combining mark for NFD text (issue #77)
+
+- **D105 · NFC normalization chosen over `Intl.Segmenter` grapheme-cluster
+  splitting.** *Judgment call the task explicitly required be made and
+  justified either way, not left implicit.* `splitOrp` (`src/pacer/orp.ts`)
+  now calls `text.normalize('NFC')` before splitting into code points — one
+  line, no change to `orpIndex`'s length-bucket thresholds.
+
+  **Why NFC is sufficient for the realistic case:** NFC composes any
+  canonically decomposable sequence into its precomposed codepoint wherever
+  the Unicode standard assigns one — which covers essentially all
+  commonly-typed accented Latin (the issue's own repro, "naïve"), Cyrillic,
+  and Greek text, and specifically the macOS-authored-NFD-file scenario the
+  issue names as the common real-world trigger. Verified directly (not just
+  asserted): `src/pacer/orp-headless-test.mjs` reconstructs NFD words spanning
+  every `orpIndex` length bucket from precomposable Latin vowel+accent pairs
+  and confirms zero bare combining marks survive in `pre`/`anchor`/`post` at
+  any length, plus a direct repro proving the *old* (pre-fix) code-point-only
+  split does leak one on the issue's own "naïve" example.
+
+  **Why `Intl.Segmenter` was not used, despite being the more complete fix:**
+  true grapheme-cluster splitting would also close the residual gap NFC
+  leaves open — combining sequences with **no** Unicode-assigned precomposed
+  form at all (e.g. some stacked-diacritic combinations, or marks the
+  composition-exclusion table deliberately excludes from NFC), where a bare
+  mark can still detach. But adopting it is a materially bigger change than
+  this fix's scope: it redefines what "one character" means throughout
+  `splitOrp`'s output — a grapheme cluster can be multiple code points glued
+  together for rendering purposes, which has knock-on implications for the
+  ORP anchor's fixed-x monospace-grid guarantee (D29/F3, which currently
+  reasons about the anchor as exactly one glyph) and for `orpIndex`'s length
+  semantics (currently a code-point count, would need to become a
+  grapheme-cluster count for the bucketing to stay meaningful on
+  cluster-heavy text). Given the task's own sizing guidance — reach for the
+  bigger fix "only if you think NFC normalization leaves a real,
+  likely-to-matter gap" — and that the residual gap is a narrow edge case
+  (Unicode sequences with no precomposed form at all) relative to the common
+  NFD-from-macOS case the issue describes, NFC alone was judged the
+  right-sized fix. The residual gap is recorded, not silently implied fixed:
+  flagged in `orp.ts`'s own updated doc comment, in FINDINGS.md F37, and
+  here.
+
+  Alternative rejected: `Intl.Segmenter`-based grapheme splitting — more
+  complete, but disproportionate to this issue's scope and introduces the
+  anchor/length-semantics questions above, which weren't asked for and
+  weren't answered by this task's direction. If the residual gap is later
+  found to matter in practice, that's a separate, larger fix with its own
+  design questions, not a hidden extension of this one.
+
+## Bug-fix — RSVP mishandles em/en-dash tokens (issue #25)
+
+- **D106 · Split only em/en dash (`–`/`—`), never hyphen-minus (`-`); the dash
+  run stays attached to the LEFT piece; guarded so a leading/trailing/bare
+  dash or a digit-flanked numeric range is left untouched.** *Adversarial-
+  audit finding, not a user repro.* `tokenize()` split only on whitespace, so
+  `"going—but"` (no surrounding spaces) became one fused token — RSVP flashed
+  both words as a single unit, the ORP anchor landed on the combined length,
+  and the pacer's word count understated actual reading. Fix: after the
+  existing whitespace split, `splitDashRuns` (`src/model/tokenize.ts`) further
+  splits each token at a run of `[–—]+`, but only when (a) there's at least
+  one character on both sides of the run — a leading (`"—word"`), trailing
+  (`"word—"`), or bare (`"—"`) dash has nothing to split off and is left as
+  one token — and (b) the immediately-flanking characters aren't both digits
+  (`1914–1918` stays one token; a numeric range is not two words joined by
+  punctuation). The dash run is kept on the LEFT piece
+  (`"going—"` / `"but"`), not split off on its own or attached right, so
+  `trailingDwell("going—")` already returns the clause-pause multiplier
+  (1.75×) for free — no dwell special-case is needed for the attached case
+  (see D108).
+
+  Alternative rejected: splitting hyphen-minus (`-`) the same way. Rejected
+  because `well-known`, `state-of-the-art`, and similar compound words are
+  extremely common in prose and are not two separate words — splitting them
+  would misread ordinary compounds as sentence-joined clauses and would also
+  spuriously fire a 1.75× clause-pause dwell on every one via the same
+  `trailingDwell` mechanism that makes the em/en-dash case work for free.
+  Alternative rejected: attaching the dash run to the RIGHT piece instead of
+  the left (`"going"` / `"—but"`). This was considered because it mirrors how
+  a spaced dash visually "belongs" to neither side more than the other, but
+  it was rejected because it loses the free dwell win above — `trailingDwell`
+  reads trailing punctuation, so a dash attached to the right piece would
+  need a separate leading-punctuation dwell rule to recover the same pause,
+  duplicating logic for no benefit over the simpler left-attachment.
+
+- **D107 · A `spaceBefore: boolean` field on `Word`, set by the tokenizer at
+  split time, rather than having renderers re-detect token boundaries at
+  render time.** Splitting `"going—but"` into two `Word`s means the two
+  existing join sites that re-insert inter-token whitespace
+  (`Reader.tsx`'s `{i > 0 && ' '}`, `RsvpContextStrip.tsx`'s identical
+  pattern) would otherwise render `"going— but"` — a space that was never in
+  the source. Rather than having each renderer re-parse `word.text` to guess
+  whether it's a dash-split continuation (fragile, and duplicated across two
+  call sites with a third, RSVP's own flash view, potentially needing the
+  same logic later), `tokenize()` sets `spaceBefore: false` on exactly the
+  continuation pieces it produces via a dash split, and `true` on every other
+  token (including every token before this change existed). The two existing
+  join sites just add `&& word.spaceBefore` to their existing `i > 0` check —
+  a one-line change at each site, with the actual "should this token be
+  flush against the previous one" decision made once, at the place that
+  already knows the answer. This is pure data on the `Word` model, so it
+  crosses to the React Native port verbatim (see ARCHITECTURE.md) — an RN
+  renderer joining tokens with a space needs the identical one-line guard,
+  no new logic to port.
+
+- **D108 · Spaced dash stays pause-only in RSVP: a skipped non-word-like
+  token's dwell rolls up (via MAX) onto the preceding word-like token,
+  rather than making punctuation word-like so RSVP can land on it.** A
+  spaced dash (`"going — but"`) tokenizes to three tokens; the standalone
+  `"—"` is (correctly, unchanged) `isWordlike: false`, so
+  `firstWordlikeFrom` skips it when the pacer advances — RSVP, which renders
+  only `words[currentIndex]`, never shows it, and (before this fix)
+  `buildDwellMultipliers` computed a dwell entry for it that was simply dead,
+  since the pacer's index never lands there. Fix: `buildDwellMultipliers`
+  (`src/pacer/dwell.ts`) now looks ahead, for each word-like token, over the
+  run of consecutive non-word-like tokens immediately following it in the
+  same block — exactly the tokens `firstWordlikeFrom` will skip over on the
+  next advance — and takes the MAX of the word's own `trailingDwell` and each
+  skipped token's `trailingDwell`. MAX, not overwrite: `"end. — word"` must
+  keep the sentence-end 2.5× pause on `"end."`, not have it downgraded to the
+  dash's 1.75× just because a dash happens to follow. The existing
+  block-last rule (last word-like token of a block gets `DWELL_PARAGRAPH`
+  unconditionally) is left untouched and takes priority over the roll-up,
+  exactly as before this change. Non-word-like tokens still get a
+  (structurally dead, but array-densifying) `trailingDwell` entry of their
+  own, unchanged from before.
+
+  Alternative rejected: making standalone punctuation `isWordlike: true` so
+  the pacer's index can land on it and RSVP can flash it. Rejected because
+  `isWordlike` is read well beyond RSVP — it gates what the pacer counts
+  toward WPM timing, what `firstWordlikeFrom` treats as a valid seek target,
+  and what bionic bolds (bionic ignores non-word-like tokens entirely,
+  D9/`bionic.ts`). Flipping it for a dash would inflate the effective word
+  count used for WPM pacing (a dash isn't a word to read at pace), would
+  make click-to-seek land on a bare punctuation mark as a legitimate
+  destination in flowing/chunk mode, and would need bionic to explicitly
+  special-case "don't bold this even though it's word-like" — three ripple
+  effects to fix one RSVP display gap that the dwell-rollup approach avoids
+  entirely by leaving `isWordlike` semantics untouched, per this task's
+  explicit constraint.
+
+- **D109 · Known-accepted, documented rather than fixed: ASCII double-hyphen
+  (`--`) as an em-dash substitute is not split; standalone non-word-like
+  tokens in general (an ellipsis `…`, a lone smart quote `"`) remain
+  invisible in RSVP.** `splitDashRuns` matches only U+2013/U+2014
+  (`–`/`—`); `--` (two ASCII hyphen-minus characters) is textually
+  indistinguishable from a doubled compound-word hyphen (there is no
+  reliable way to tell "old-school writers' em-dash substitute" from, say, a
+  typo or a deliberate double-hyphen in source text without a much broader
+  heuristic), so it is left as a single attached run exactly like a genuine
+  hyphen-minus, per D106's rejection of splitting hyphen-minus at all. The
+  spaced-dash pause-preservation fix (D108) is a *general* mechanism — it
+  rolls up the dwell of any skipped non-word-like run, not specifically
+  dashes — so an ellipsis or a lone smart quote as a standalone token
+  already gets the same MAX-rollup treatment. But RSVP still never *renders*
+  any standalone non-word-like token, by design (RSVP shows one word-like
+  flash at a time); the spaced em/en-dash the issue names is one instance of
+  this general, pre-existing, and unchanged behavior, not a special case
+  this fix eliminates. Making every standalone punctuation token visible in
+  RSVP is out of scope here — see D108's rejected alternative for why that
+  would ripple well beyond RSVP.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

@@ -209,7 +209,7 @@ export function RsvpContextStrip({ document, pacer, contextLines }: RsvpContextS
           <p key={block.id} className="rsvp-context-para">
             {block.words.map((word, i) => (
               <Fragment key={word.id}>
-                {i > 0 && ' '}
+                {i > 0 && word.spaceBefore && ' '}
                 <span className="rsvp-context-word" data-word-id={word.id}>
                   {word.text}
                 </span>

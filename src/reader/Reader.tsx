@@ -84,7 +84,7 @@ const BlockView = memo(function BlockView({
     <>
       {block.words.map((word, i) => (
         <Fragment key={word.id}>
-          {i > 0 && ' '}
+          {i > 0 && word.spaceBefore && ' '}
           <WordSpan word={word} bionic={bionic} clickable={clickable} />
         </Fragment>
       ))}

@@ -1529,6 +1529,83 @@ has been watched in an actual browser session.
 
 ---
 
+## Bug-fix — RSVP mishandles em/en-dash tokens (issue #25)
+
+### F38 — Dash-split + dwell-rollup fixes proven against the real bundled `tokenize`/`buildDwellMultipliers`; the visual/felt RSVP behavior is unverified ✅🧪❓
+
+Issue #25 (adversarial-audit finding, not a user repro): `tokenize()` split
+only on whitespace, so an attached em/en dash (`"going—but"`) fused two words
+into one RSVP flash, and a spaced dash (`"going — but"`) tokenized to a
+standalone non-word-like token the pacer's `firstWordlikeFrom` always skips —
+RSVP never renders it, and its dwell entry in `buildDwellMultipliers` was
+dead. See D106–D109 for the full design reasoning (dash-run split rule,
+`spaceBefore` field, dwell roll-up, and what was deliberately left unfixed).
+
+**What was actually run, not just reasoned about (✅):** two new headless
+suites, both esbuild-bundling and importing the real shipped module (same
+pattern as F24/F26–F29/F32/F34/F37 — not a hand-copied restatement):
+
+- `src/model/headless-test.mjs` (new), against the real
+  `src/model/tokenize.ts`'s `tokenize`: **17/17 passed** — `"word—word"` and
+  `"word–word"` split into two tokens with the dash on the left piece and
+  `spaceBefore: false` on the continuation; `"word — word"` stays three
+  tokens, the dash `isWordlike: false`, all three `spaceBefore: true`;
+  `"well-known"` and `"1914–1918"` are each left as one unchanged token
+  (hyphen-minus and numeric-range guards); a leading dash (`"—word"`),
+  trailing dash (`"word—"`), and bare dash (`"—"`) are each left as one
+  token; a multi-dash run (`"word——word"`) splits as a single unit into two
+  tokens; and ids stay sequential from a non-zero `startIndex` across split
+  pieces within a mixed sentence.
+- `src/pacer/dwell-headless-test.mjs` (new), against the real
+  `src/pacer/dwell.ts`'s `buildDwellMultipliers` (documents constructed
+  directly as flat-indexed `Word[]`, bypassing the tokenizer, so each case
+  controls `isWordlike`/`text` precisely): **5/5 passed** — `"word — word"`'s
+  first word rolls up to the skipped dash's 1.75×; `"end. — word"` keeps the
+  first word's sentence-end 2.5× rather than being downgraded by the
+  dash's 1.75× (proves the MAX rule, not overwrite); a plain word with no
+  skipped run after it stays at the unmodified 1×; the last word-like token
+  of a block still gets the unconditional paragraph 3×; and a post-split
+  attached-dash token (`"word—"`) gets 1.75× from its own existing
+  `trailingDwell`, with no new dwell special-case required — confirming
+  D106's "free win" claim empirically, not just algebraically.
+
+**Regression check (✅):** all 9 pre-existing headless suites
+(`parsers/headless-test.mjs` 15/15, `parsers/spine-integrity-headless-
+test.mjs` 26/26, `parsers/epubStructure-headless-test.mjs` 12/12,
+`parsers/pdfText-headless-test.mjs` 14/14, `parsers/pdf-headless-test.mjs`
+14/14, `pacer/headless-test.mjs` 13/13, `pacer/orp-headless-test.mjs` 5/5,
+`presets/headless-test.mjs` 12/12, `storage/headless-test.mjs` 15/15) were
+re-run after adding the required `Word.spaceBefore` field and remain green —
+meaningful here because all three parsers (markdown/PDF/EPUB) route through
+the same `tokenize()` that changed, and `reindexWords`'s `{ ...word, id }`
+spread was confirmed (by these suites still passing, not just by reading the
+spread) to carry `spaceBefore` through re-indexing untouched.
+
+**🧪 Build:** `npm run build` (`tsc -b && vite build`) clean — 71 modules
+transformed, no type errors — confirming `tokenize()` is still the only
+`Word`-literal construction site (adding a required field would have been a
+type error at any missed site) and that `Reader.tsx`/`RsvpContextStrip.tsx`'s
+one-line `spaceBefore` guards typecheck.
+
+**Not verified — explicitly flagged, not claimed (❓):** none of this was
+watched in a browser. Specifically unverified: RSVP actually flashing
+`"going—"` then `"but"` as two legible flashes rather than the old fused
+token; the ORP anchor (`orp.ts`, untouched by this fix) landing correctly on
+each shorter piece rather than the old combined length; whether the rolled-up
+1.75×/2.5× pause on a spaced dash is *perceptible* at real WPM speeds in RSVP;
+whether `Reader.tsx`'s flowing/chunk rendering of a dash-split token
+(`"going—"` immediately followed by `"but"` with no space, per
+`spaceBefore: false`) reads correctly on screen — text-content correctness was
+confirmed by the headless tests, but the actual glued-together rendering
+(`"going—but"` with no space, as intended, versus some unintended visual
+artifact) was not seen. This matches the file's established practice
+(F22/F23/F30/F31/F35) of tagging felt/visual behavior ❓ rather than
+inferring it from passing unit tests.
+
+(2026-07-16, fix/rsvp-dash-tokens)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1656,6 +1733,44 @@ has been watched in an actual browser session.
   contradicting D81's stated rejection of exactly that state — fixed by
   giving each an explicit `showContext: false` override (D103). 12/12
   headless (up from 11/11), 🧪 build clean.
+- **F36** added (2026-07-14, issue #76): `BookRecord.wordCount` being
+  record-level (overwritten on every save) meant a `history` entry's own
+  drift could be masked once a later save happened to re-converge the
+  record's wordCount to some other value — fixed by giving each
+  `PositionSnapshot` its own `wordCount`, with `??` fallback to the
+  record-level value for pre-fix (legacy) snapshots. Also converted
+  `storage/headless-test.mjs`'s tests 1-4/10 to exercise the real
+  `saveReadingPosition`/`loadBookRecord` via a small in-memory `localStorage`
+  stub (attempted per the task's optional suggestion, kept — small and
+  self-contained; see DECISIONS.md). 15/15 headless (up from 14/14),
+  including a new test that concretely contrasts the old buggy resolution
+  against the fixed one on the same reconstructed input. 🧪 build clean.
+- **F37** added (2026-07-14, issue #77): `splitOrp` split NFD (decomposed)
+  text by raw code point, which could anchor the RSVP focal letter on a bare
+  combining mark or leak one into `pre`/`post`, detached from its base
+  character — fixed with one `text.normalize('NFC')` call before splitting.
+  Judged sufficient over `Intl.Segmenter` grapheme-cluster splitting for the
+  realistic case (precomposable Latin/Cyrillic/Greek accents); a residual gap
+  for non-precomposable combining sequences is explicitly flagged, not
+  silently left implied-fixed — see DECISIONS.md. New
+  `src/pacer/orp-headless-test.mjs`, 5/5 headless against the real bundled
+  `orp.ts`, including a direct repro of the pre-fix bug via an
+  old-logic mirror. 🧪 build clean; `pacer/headless-test.mjs` (unrelated,
+  13/13) re-run unchanged as a regression check.
+- **F38** added (2026-07-16, issue #25): RSVP mishandled em/en-dash tokens —
+  an attached dash (`"going—but"`) fused two words into one token, and a
+  spaced dash (`"going — but"`) tokenized to a standalone non-word-like token
+  the pacer always skips, silently dropping both the dash and its dwell.
+  Fixed with a dash-run split in `tokenize()` (dash stays on the left piece,
+  guarded against leading/trailing/bare dashes and numeric ranges — D106), a
+  new `Word.spaceBefore` field so split continuation pieces render flush with
+  no re-inserted space (D107), and a dwell roll-up in
+  `buildDwellMultipliers` so a skipped punctuation run's pause survives via
+  MAX onto the preceding word (D108). New `src/model/headless-test.mjs`
+  (17/17) and `src/pacer/dwell-headless-test.mjs` (5/5) against the real
+  bundled modules; all 9 pre-existing suites re-run and still green. 🧪 build
+  clean. Real-browser RSVP rendering/felt-pause verification still
+  outstanding, same class of gap as F22/F23/F30/F31/F35.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 
@@ -1757,3 +1872,185 @@ the inline copy drifting from the real source on a future change to either
 file. Not exercised in a browser — same outstanding items as F-PRESETS-4.
 
 (2026-07-14, fix/preset-showcontext-contradiction)
+
+---
+
+## Bug-fix — Resume history-snapshot wordCount drift (issue #76)
+
+### F36 — Per-snapshot wordCount closes the residual #48 drift gap; real `saveReadingPosition`/`loadBookRecord` now exercised directly (localStorage stub) ✅ headless-verified
+
+Issue #76 (adversarial-audit finding, not a user repro): the #48 fix (D92,
+F26) compared `BookRecord.wordCount` (record-level, overwritten on every
+save) against the live word count to detect tokenization drift — correct for
+resuming `latest` (which is always the most recent save, so its basis and
+`record.wordCount` are the same number by construction), but not for a
+`history` entry, whose own basis can differ from whatever the record's
+wordCount happens to be by the time the user picks it to resume. Concretely:
+save under tokenization A (wordCount 10,000) creates a history entry;
+tokenization changes to B (8,000 words), a later save updates
+`record.wordCount` to 8,000; tokenization later happens to reconverge to A's
+count (10,000) for an unrelated reason, and a third save updates
+`record.wordCount` back to 10,000. If the user now resumes the *first*
+history entry (the one actually saved under A), the record-level comparison
+sees `record.wordCount(10000) === len(10000)` and wrongly reports "no
+drift" — but that's irrelevant to whether *that specific entry* drifted; it
+happens to be correct here only because the entry itself was also saved
+under A. Swap in the *middle* entry (the one saved under B, 8,000) instead,
+and the same record-level comparison still says "no drift" against a live
+count of 10,000 — silently wrong, reusing a raw `wordIndex` computed against
+an 8,000-word tokenization on a 10,000-word document.
+
+**Fix:** `PositionSnapshot` (`src/storage/readingPosition.ts`) gained an
+optional `wordCount?: number`, populated on every `saveReadingPosition` call
+from the same `wordCount` parameter already used to compute `percent` — so
+each snapshot now carries its own basis, independent of whatever the
+record's top-level `wordCount` says later. `handleResume` (`src/App.tsx`)
+now resolves `savedWordCount = snapshot.wordCount ?? resumeRecord?.wordCount`
+and drift-checks against *that*, falling back to the record-level value only
+for snapshots persisted before this fix shipped (`wordCount` absent —
+existing localStorage data, backward compatible, no migration needed since
+`??` handles the missing field transparently). The `??` fallback is
+important, not decorative: without it, an already-in-the-wild pre-fix
+snapshot's `undefined` wordCount would either need special-casing or would
+incorrectly compare `undefined !== len` (always true, forcing every legacy
+snapshot onto the percent-fallback path even when its raw index would have
+been fine).
+
+**What was actually run, not just reasoned about — and a scope note on
+methodology:** unlike F26 (which hand-mirrored `saveReadingPosition`'s
+logic, per that file's own header explaining `.mjs` scripts can't import
+`.ts` directly without a build step), this fix's tests exercise the REAL
+`src/storage/readingPosition.ts` via the same esbuild-bundle-and-import
+pattern already used by the parser suites (F24/F26–F29/F32/F34). This
+required a small addition: a Map-backed in-memory `localStorage` stub
+(`getItem`/`setItem`/`removeItem`/`clear`, ~15 lines) assigned to
+`globalThis.localStorage` before the bundled module is imported — Node has
+no such global, and `storage.ts` (readingPosition.ts's only dependency)
+calls `localStorage` exclusively inside function bodies, never at
+module-load time, so there's no import-order hazard. This was flagged as
+optional in the task ("only if it's clean and doesn't risk destabilizing the
+suite's other tests"); it was attempted and kept because it stayed small and
+self-contained — see DECISIONS.md for the write-up. Two things remain
+mirrored rather than imported, each for a concrete, still-valid reason
+(unchanged from F26): `fingerprintFromBytes` (the real `computeFingerprint`
+needs `crypto.subtle`, a browser-only API operating on a `File`) and
+`resolveResumeTarget` (mirrors `handleResume`, a React component method
+closing over component state — not an exported pure function, nothing to
+import).
+
+`src/storage/headless-test.mjs`: **15/15 passed** (was 14/14 — 1 new check).
+Tests 1, 2, 3, 4, and 10 were converted from the old hand-mirrored
+`applyPositionSave` helper to real `saveReadingPosition`/`loadBookRecord`
+calls against the stubbed storage — same assertions, now proving the actual
+shipped persistence code rather than a restatement of it. Test 4 additionally
+asserts the round-tripped snapshot carries its own `wordCount`. Test 15 (new)
+constructs the three-save reconverging-wordCount sequence above end-to-end
+through the real `saveReadingPosition`, confirms the middle history entry
+survives (no eviction, cap is 5), and then demonstrates **both** sides of the
+fix concretely: a `resolveResumeTargetOldBuggy` mirror of the pre-#76
+record-only comparison is shown to reuse the stale raw `wordIndex` on this
+exact input (the bug), while `resolveResumeTarget` (the #76-fixed logic)
+detects the drift via the snapshot's own `wordCount` and falls back to
+percent, landing on a different, correct index. Tests 11–14 (the #48 clamp/
+drift suite) were extended with explicit snapshot `wordCount` fields — test
+14 in particular now separately exercises the own-wordCount-drift path and
+the legacy-no-own-wordCount fallback path, where the original only exercised
+one undifferentiated "drift" case.
+
+🧪 `npm run build` (`tsc -b && vite build`) clean after both source changes
+(`readingPosition.ts`, `App.tsx`) — 71 modules transformed, no type errors.
+
+**Not verified — same class of gap as F20/F26's own outstanding lists:**
+whether a real tokenization drift sequence (three actual app sessions across
+a real parser change and revert) reproduces this exact storage shape in a
+live browser; whether the resume-prompt UI correctly surfaces and resolves a
+history entry under this scenario end-to-end (`ResumePrompt.tsx`'s history
+buttons were not exercised, only the pure resolution logic they'd feed into).
+
+(2026-07-14, fix/resume-drift-and-orp-nfd)
+
+---
+
+## Bug-fix — RSVP anchors on a bare combining mark for NFD text (issue #77)
+
+### F37 — NFC normalization before code-point splitting fixes the common case; exotic non-precomposable combining sequences remain a known, flagged gap ✅ headless-verified
+
+Issue #77 (adversarial-audit finding, not a user repro): `splitOrp`
+(`src/pacer/orp.ts`) split a word into pre/anchor/post by raw code point
+(`[...text]`). In NFD (canonically decomposed) text — common from
+macOS-authored files and some extraction paths, per the issue — a base
+character and its combining diacritic are two separate code points, so the
+split could land the ORP anchor index on a bare combining mark, or leave one
+dangling at the start of `pre`/`post`, detached from the base letter it
+belongs to. Concretely, NFD "naïve" (6 code points: n, a, i, combining
+diaeresis, v, e) splits differently than its NFC form (5 code points: n, a,
+ï, v, e) — `orpIndex(6) = 2` lands the anchor on the base `i`, but the very
+next code point, the bare diaeresis, leaks into `post` as a detached mark
+(reproduced directly, see below) — and for other word shapes the anchor
+index itself can land squarely on the mark.
+
+**Fix:** `splitOrp` now calls `text.normalize('NFC')` before splitting into
+code points (one line, `src/pacer/orp.ts`). NFC composes any canonically
+decomposable sequence into its precomposed form wherever one exists — which
+covers essentially all standard Latin accented letters (the common
+real-world case named in the issue). `orpIndex`'s length-bucket thresholds
+are untouched; only what gets split changed.
+
+**NFC vs. `Intl.Segmenter` (grapheme-cluster splitting) — the judgment call
+the task asked to be made explicit either way:** NFC was chosen as the
+right-sized fix. It resolves the issue's own repro and the entire realistic
+case (any base+mark sequence with a Unicode-assigned precomposed
+codepoint — which includes all commonly-typed accented Latin, Cyrillic, and
+Greek letters). It does **not** resolve combining sequences with no
+precomposed NFC form at all — e.g. some stacked-diacritic combinations, or
+marks Unicode's composition-exclusion table deliberately excludes from NFC —
+where a bare combining mark can still detach. `Intl.Segmenter` (true
+grapheme-cluster splitting) would close that residual gap, but is a
+materially bigger change: it changes what "one character" means throughout
+`splitOrp`'s consumers (the ORP anchor is currently reasoned about as "one
+code point"; a grapheme cluster can be multiple code points glued together,
+which ripples into rendering — the anchor letter is pinned to a fixed
+monospace column, D29/F3 — and into `orpIndex`'s length semantics, which
+currently counts code points). Given the task's explicit sizing guidance
+("only reach for `Intl.Segmenter` if NFC leaves a real, likely-to-matter
+gap"), and that the residual gap is a narrow, uncommon case relative to the
+common NFD-from-macOS scenario the issue names, NFC alone was judged
+sufficient — see DECISIONS.md for the full write-up, including the rejected
+alternative.
+
+**What was actually run:** a new `src/pacer/orp-headless-test.mjs`,
+esbuild-bundling and importing the real `src/pacer/orp.ts` (same pattern as
+`spine-integrity-headless-test.mjs`), **5/5 passed**:
+1. NFD "naïve" and its NFC form produce byte-identical `{pre, anchor, post}`,
+   and the composed anchor is confirmed not a bare combining mark
+   (`\p{M}` Unicode-property check).
+2. **Pre-fix bug reproduced directly**, not just asserted fixed: a
+   `splitOrpOldBuggy` mirror of the exact pre-fix logic (code-point split,
+   no NFC step) is run against NFD "naïve" and shown to produce a `post`
+   starting with a bare combining mark — the concrete "post '̈ve'" symptom
+   the issue itself describes — while the real, fixed `splitOrp` on the same
+   input does not.
+3. A systematic sweep across every `orpIndex` bucket boundary (lengths 1, 5,
+   6, 9, 10, 13, 14, 20) using NFD words built entirely from
+   precomposable accented Latin vowels (á/é/í/ó/ú via base vowel + U+0301
+   COMBINING ACUTE ACCENT, decomposed) — for every length, the reconstructed
+   split equals the NFC-composed word exactly, and the anchor/pre/post never
+   contain a bare combining mark.
+4. Ordinary ASCII words are unaffected (`splitOrp('extraordinary')` etc.
+   reconstructs and anchors identically to before this change).
+5. Empty string still returns `{ pre: '', anchor: '', post: '' }`.
+
+🧪 `npm run build` (`tsc -b && vite build`) clean — 71 modules transformed,
+no type errors. `node src/pacer/headless-test.mjs` (the unrelated Space-key
+predicate suite, sharing the `src/pacer/` directory but no import
+relationship with `orp.ts`) re-run as a regression check: **13/13 unchanged**.
+
+**Not verified — flagged, not silently assumed fine:** the residual
+non-precomposable-combining-sequence gap described above is real and
+untested here (deliberately — there is nothing to headlessly verify about a
+gap the fix doesn't claim to close); real-world documents containing such
+sequences would still show a detached mark in RSVP. `Rsvp.tsx` (the only
+caller of `splitOrp`) was not exercised in a browser — this confirms the
+pure function's output, not the rendered word's on-screen appearance.
+
+(2026-07-14, fix/resume-drift-and-orp-nfd)

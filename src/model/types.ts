@@ -21,6 +21,12 @@ export interface Word {
    * The pacer skips these when advancing; bionic never bolds them.
    */
   isWordlike: boolean;
+  /**
+   * False when this token must render flush against the previous one with no
+   * space (e.g. the right-hand piece of a split `word—word`). Renderers that
+   * re-insert inter-token whitespace must honor this.
+   */
+  spaceBefore: boolean;
 }
 
 export type BlockType = 'heading' | 'paragraph';
