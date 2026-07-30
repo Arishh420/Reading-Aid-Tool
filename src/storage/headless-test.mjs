@@ -16,46 +16,125 @@
  *   11-14. Resume-target mapping (issue #48): wordCount drift → resume by
  *      percent instead of raw wordIndex; no drift → raw wordIndex unchanged;
  *      clamping holds at both ends of the word range.
+ *   15. Per-snapshot wordCount drift (issue #76): a history snapshot saved
+ *      under an older tokenization still resolves by ITS OWN wordCount even
+ *      after a later save re-converges the record-level wordCount to match
+ *      the current parse — the record-level comparison alone would miss this.
  *
  * What requires the browser (noted, not tested here):
  *   - computeFingerprint() on a real File object (crypto.subtle is browser API).
  *   - The resume prompt interstitial rendering and click handling.
  *   - pacer.seek() restoring position across all three modes.
  *   - The 30-second save interval / visibilitychange / pagehide triggering.
+ *
+ * Tests 1-4, 10, and 15 exercise the REAL src/storage/readingPosition.ts
+ * (saveReadingPosition / loadBookRecord), esbuild-bundled the same way the
+ * parser suites (e.g. spine-integrity-headless-test.mjs) exercise their real
+ * modules — not a hand-copied restatement. This requires a localStorage stub
+ * (Node has no such global): a trivial Map-backed object assigned to
+ * globalThis.localStorage before the bundled module is imported. storage.ts
+ * only calls localStorage inside function bodies (never at module-load time),
+ * so import order relative to the stub assignment is safe.
+ *
+ * Two pieces of logic are still mirrored rather than imported, each for a
+ * concrete reason, not convenience:
+ *   - fingerprintFromBytes: the real computeFingerprint() uses crypto.subtle,
+ *     a browser-only API operating on a File; Node's crypto module is used
+ *     here as a same-algorithm (SHA-256) stand-in, same as before this change.
+ *   - resolveResumeTarget: mirrors App.tsx's handleResume(), which is a
+ *     React component method closing over component state (words, resumeRecord)
+ *     rather than an exported pure function — there is nothing importable here.
  */
 
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-// ─── Inline the logic from storage/readingPosition.ts ────────────────────────
-// (We can't import the TS directly in a .mjs headless script without a build
-//  step, so we re-implement the pure logic to test it in isolation.)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function makeSnapshot(wordIndex, wordCount, savedAt) {
-  const percent = wordCount > 1 ? wordIndex / (wordCount - 1) : 0;
-  return { wordIndex, percent, savedAt };
-}
+// ─── In-memory localStorage stub (Node has no such global) ──────────────────
 
-/** Mirrors saveReadingPosition() logic. Returns the updated BookRecord. */
-function applyPositionSave(existing, fingerprint, title, wordIndex, wordCount, now) {
-  const snapshot = makeSnapshot(wordIndex, wordCount, now);
-  let history = existing?.history ?? [];
-  const lastHistoryPercent = history.length > 0 ? history[0].percent : -Infinity;
-  if (Math.abs(snapshot.percent - lastHistoryPercent) > 0.02) {
-    history = [snapshot, ...history].slice(0, 5);
+class MemoryStorage {
+  constructor() {
+    this._map = new Map();
   }
-  return { fingerprint, title, wordCount, latest: snapshot, history };
+  getItem(key) {
+    return this._map.has(key) ? this._map.get(key) : null;
+  }
+  setItem(key, value) {
+    this._map.set(key, String(value));
+  }
+  removeItem(key) {
+    this._map.delete(key);
+  }
+  clear() {
+    this._map.clear();
+  }
 }
+
+globalThis.localStorage = new MemoryStorage();
+
+// ─── Bundle + import the REAL readingPosition.ts (and its storage.ts import) ─
+
+async function bundleAndImport(entry, tmpName) {
+  const result = await build({
+    entryPoints: [path.join(__dirname, entry)],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    target: 'node18',
+    platform: 'node',
+  });
+  const tmpPath = path.join(__dirname, `.headless-${tmpName}-${process.pid}.mjs`);
+  const { writeFile, unlink } = await import('node:fs/promises');
+  await writeFile(tmpPath, result.outputFiles[0].text);
+  try {
+    return await import(`${tmpPath}?t=${Date.now()}`);
+  } finally {
+    await unlink(tmpPath);
+  }
+}
+
+const { saveReadingPosition, loadBookRecord } = await bundleAndImport(
+  'readingPosition.ts',
+  'reading-position',
+);
 
 // ─── Inline the resume-target mapping from App.tsx's handleResume ───────────
-// (issue #48 — wordCount drift detection + percent fallback)
+// (issue #48 — wordCount drift detection + percent fallback; issue #76 — use
+// the snapshot's own wordCount, not the record-level one, to detect drift)
+//
+// Not importable: handleResume is a React component method closing over
+// component state, not an exported pure function.
 
 /**
- * Mirrors handleResume()'s pure index-selection logic: given the BookRecord's
- * stored wordCount, the chosen PositionSnapshot, and the current flattened
- * word count, returns the word index to seek to.
+ * Mirrors handleResume()'s pure index-selection logic: given the chosen
+ * PositionSnapshot, the BookRecord's record-level wordCount (used only as a
+ * fallback for snapshots saved before #76), and the current flattened word
+ * count, returns the word index to seek to.
  */
-function resolveResumeTarget(recordWordCount, snapshot, currentWordCount) {
+function resolveResumeTarget(snapshot, recordWordCount, currentWordCount) {
+  const len = currentWordCount;
+  const savedWordCount = snapshot.wordCount ?? recordWordCount;
+  let target;
+  if (savedWordCount !== undefined && savedWordCount !== len) {
+    target = len > 1 ? Math.round(snapshot.percent * (len - 1)) : 0;
+  } else {
+    target = snapshot.wordIndex;
+  }
+  return Math.max(0, Math.min(target, len - 1));
+}
+
+/**
+ * Mirrors the PRE-#76 buggy logic (D92's original fix): compares only the
+ * BookRecord's record-level wordCount against the current live count,
+ * ignoring which snapshot is actually being resumed. Kept here solely to
+ * demonstrate, concretely, that it produces the wrong answer in the #76
+ * scenario (test 15) — not used anywhere in the app anymore.
+ */
+function resolveResumeTargetOldBuggy(recordWordCount, snapshot, currentWordCount) {
   const len = currentWordCount;
   let target;
   if (recordWordCount !== len) {
@@ -116,48 +195,52 @@ console.log('\nReading-position persistence — headless checks\n');
 
 // 1. History rolls at 5 — oldest entry dropped when 6th is added.
 test('history caps at 5 entries', () => {
-  let record = null;
+  localStorage.clear();
+  const fp = 'fp-cap';
   const TOTAL = 1000;
   for (let i = 1; i <= 6; i++) {
-    record = applyPositionSave(record, 'fp', 'Book', i * 100, TOTAL, Date.now() + i);
+    saveReadingPosition(fp, 'Book', i * 100, TOTAL);
   }
+  const record = loadBookRecord(fp);
   assert.equal(record.history.length, 5, `expected 5, got ${record.history.length}`);
 });
 
 // 2. >2 % gate: saves within 2 % of last history entry do NOT add new entries.
 test('>2 % gate prevents redundant history entries', () => {
-  let record = null;
+  localStorage.clear();
+  const fp = 'fp-gate';
   const TOTAL = 10000;
   // First save — creates a history entry at 0.
-  record = applyPositionSave(record, 'fp', 'Book', 0, TOTAL, 1);
-  const countAfterFirst = record.history.length;
+  saveReadingPosition(fp, 'Book', 0, TOTAL);
+  const countAfterFirst = loadBookRecord(fp).history.length;
   // Second save at wordIndex 1 — 0.01 %, well within the 2 % gate.
-  record = applyPositionSave(record, 'fp', 'Book', 1, TOTAL, 2);
-  assert.equal(record.history.length, countAfterFirst, 'history grew despite <2 % movement');
+  saveReadingPosition(fp, 'Book', 1, TOTAL);
+  assert.equal(loadBookRecord(fp).history.length, countAfterFirst, 'history grew despite <2 % movement');
 });
 
 // 3. latest is ALWAYS updated, even when history gate suppresses a new snapshot.
 test('latest is updated on every save regardless of gate', () => {
-  let record = null;
+  localStorage.clear();
+  const fp = 'fp-latest';
   const TOTAL = 10000;
-  record = applyPositionSave(record, 'fp', 'Book', 100, TOTAL, 1);
-  const historyLengthBefore = record.history.length;
+  saveReadingPosition(fp, 'Book', 100, TOTAL);
+  const historyLengthBefore = loadBookRecord(fp).history.length;
   // Move only 0.5 % — under the 2 % gate.
-  record = applyPositionSave(record, 'fp', 'Book', 150, TOTAL, 2);
+  saveReadingPosition(fp, 'Book', 150, TOTAL);
+  const record = loadBookRecord(fp);
   assert.equal(record.latest.wordIndex, 150, 'latest.wordIndex not updated');
   assert.equal(record.history.length, historyLengthBefore, 'history should not have grown');
 });
 
-// 4. Position round-trips through JSON (simulates the localStorage serialize/deserialize).
-test('position round-trips through JSON serialisation', () => {
-  let record = null;
-  record = applyPositionSave(record, 'fp-rt', 'Book B', 42, 1000, 1_700_000_000_000);
-  const serialised = JSON.stringify(record);
-  const restored = JSON.parse(serialised);
+// 4. Position round-trips through real storage (localStorage stub set/get, JSON fidelity).
+test('position round-trips through storage', () => {
+  localStorage.clear();
+  saveReadingPosition('fp-rt', 'Book B', 42, 1000);
+  const restored = loadBookRecord('fp-rt');
   assert.equal(restored.latest.wordIndex, 42);
-  assert.equal(restored.latest.savedAt, 1_700_000_000_000);
   assert.equal(restored.fingerprint, 'fp-rt');
   assert.equal(restored.wordCount, 1000);
+  assert.equal(restored.latest.wordCount, 1000, 'snapshot should carry its own wordCount (issue #76)');
 });
 
 // 5. Useful-history filter: entries within 5 % of latest are excluded.
@@ -212,21 +295,23 @@ test('large files differing in middle are given different fingerprints', () => {
 
 // 10. History entries are newest-first (most recent is index 0).
 test('history is stored newest-first', () => {
-  let record = null;
+  localStorage.clear();
+  const fp = 'fp-newest';
   const TOTAL = 1000;
   const timestamps = [100, 200, 300];
   for (let i = 0; i < timestamps.length; i++) {
-    record = applyPositionSave(record, 'fp', 'Book', (i + 1) * 100, TOTAL, timestamps[i]);
+    saveReadingPosition(fp, 'Book', (i + 1) * 100, TOTAL);
   }
+  const record = loadBookRecord(fp);
   // Each save is >2 % apart, so all should be in history.
-  assert.ok(record.history[0].savedAt > record.history[1].savedAt,
+  assert.ok(record.history[0].savedAt >= record.history[1].savedAt,
     'history[0] should be more recent than history[1]');
 });
 
 // 11. No drift: wordCount matches → raw wordIndex is used, unchanged.
 test('no wordCount drift: resumes at the raw saved wordIndex', () => {
-  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1 };
-  const target = resolveResumeTarget(10000, snapshot, 10000);
+  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1, wordCount: 10000 };
+  const target = resolveResumeTarget(snapshot, 10000, 10000);
   assert.equal(target, 4200);
 });
 
@@ -234,8 +319,8 @@ test('no wordCount drift: resumes at the raw saved wordIndex', () => {
 test('wordCount drift: resumes by percent instead of raw wordIndex', () => {
   // Saved against a 10,000-word parse at 42 %; re-parsed to 8,000 words
   // (e.g. a parser fix changed tokenization for the same file bytes).
-  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1 };
-  const target = resolveResumeTarget(10000, snapshot, 8000);
+  const snapshot = { wordIndex: 4200, percent: 0.42, savedAt: 1, wordCount: 10000 };
+  const target = resolveResumeTarget(snapshot, 10000, 8000);
   const expected = Math.round(0.42 * 7999);
   assert.equal(target, expected, `expected ${expected}, got ${target}`);
   assert.notEqual(target, 4200, 'should not have used the stale raw wordIndex');
@@ -243,21 +328,93 @@ test('wordCount drift: resumes by percent instead of raw wordIndex', () => {
 
 // 13. Clamp holds at the low end (percent 0 on a drifted record).
 test('drift fallback clamps at the low end', () => {
-  const snapshot = { wordIndex: 0, percent: 0, savedAt: 1 };
-  const target = resolveResumeTarget(500, snapshot, 300);
+  const snapshot = { wordIndex: 0, percent: 0, savedAt: 1, wordCount: 500 };
+  const target = resolveResumeTarget(snapshot, 500, 300);
   assert.equal(target, 0);
 });
 
 // 14. Clamp holds at the high end (percent 1, and a pathological >1 percent
-// from a corrupted record, on both drifted and non-drifted paths).
-test('clamp holds at the high end for both drift and non-drift paths', () => {
-  const atEnd = { wordIndex: 299, percent: 1, savedAt: 1 };
-  assert.equal(resolveResumeTarget(300, atEnd, 300), 299, 'non-drift high end');
-  assert.equal(resolveResumeTarget(500, atEnd, 300), 299, 'drift high end');
+// from a corrupted record, on non-drift, own-wordCount-drift, and legacy
+// record-fallback-drift paths).
+test('clamp holds at the high end for non-drift, own-wordCount-drift, and fallback-drift paths', () => {
+  // Non-drift: snapshot's own wordCount matches current live count.
+  const atEnd = { wordIndex: 299, percent: 1, savedAt: 1, wordCount: 300 };
+  assert.equal(resolveResumeTarget(atEnd, 300, 300), 299, 'non-drift high end');
 
-  const corrupted = { wordIndex: 99999, percent: 1.5, savedAt: 1 };
-  assert.equal(resolveResumeTarget(500, corrupted, 300), 299, 'drift path clamps a corrupted percent');
-  assert.equal(resolveResumeTarget(300, corrupted, 300), 299, 'non-drift path clamps a stale wordIndex');
+  // Drift via the snapshot's OWN wordCount (issue #76 path) — record-level
+  // wordCount is deliberately different (500) to confirm the snapshot's own
+  // value wins over the fallback when both are present.
+  const driftedOwn = { wordIndex: 299, percent: 1, savedAt: 1, wordCount: 250 };
+  assert.equal(resolveResumeTarget(driftedOwn, 500, 300), 299, 'drift (own wordCount) high end clamps');
+
+  // Drift via the record-level FALLBACK — a legacy snapshot persisted before
+  // #76 with no wordCount of its own.
+  const legacyNoOwnWordCount = { wordIndex: 299, percent: 1, savedAt: 1 };
+  assert.equal(resolveResumeTarget(legacyNoOwnWordCount, 500, 300), 299, 'drift (record fallback) high end clamps');
+
+  // Corrupted percent (>1) clamps regardless of path.
+  const corrupted = { wordIndex: 99999, percent: 1.5, savedAt: 1, wordCount: 500 };
+  assert.equal(resolveResumeTarget(corrupted, 500, 300), 299, 'drift path clamps a corrupted percent');
+  assert.equal(resolveResumeTarget({ ...corrupted, wordCount: 300 }, 300, 300), 299, 'non-drift path clamps a stale wordIndex');
+});
+
+// 15. Issue #76: a history snapshot saved under an older tokenization must
+// resolve by ITS OWN wordCount, even after a LATER save re-converges the
+// record-level wordCount to match some other value. The bug requires: (a) the
+// snapshot being resumed is NOT the most recent save (so its own basis can
+// differ from record.wordCount), and (b) record.wordCount, by the time of
+// resume, coincidentally equals the CURRENT live word count for an unrelated
+// reason — masking drift for that specific older snapshot.
+test('issue #76: history snapshot drift survives record-level wordCount re-converging', () => {
+  localStorage.clear();
+  const fp = 'fp-76';
+
+  // Save 1 — tokenization A (10,000 words), reader at 10 % (word 1000).
+  saveReadingPosition(fp, 'Book', 1000, 10000);
+
+  // Save 2 — a parser change shifts tokenization to B (8,000 words), reader
+  // at 50 % (word 4000). Far enough from save 1's 10 % to create a new
+  // history entry; record.wordCount becomes 8000.
+  saveReadingPosition(fp, 'Book', 4000, 8000);
+
+  // Save 3 — tokenization RECONVERGES to A's word count (10,000 again — e.g.
+  // a further parser fix), reader at 90 % (word 9000). Far enough from 50 %
+  // to create a third history entry; record.wordCount becomes 10000 again —
+  // matching save 1's basis, but NOT save 2's.
+  saveReadingPosition(fp, 'Book', 9000, 10000);
+
+  const finalRecord = loadBookRecord(fp);
+  assert.equal(finalRecord.wordCount, 10000, 'record-level wordCount re-converged to 10,000');
+  assert.equal(finalRecord.history.length, 3, 'all three saves should have cleared the 2% gate');
+
+  // The middle snapshot (save 2, tokenization B / 8000 words) is the one
+  // whose OWN basis differs from the now-reconverged record-level wordCount.
+  const middleSnapshot = finalRecord.history.find((s) => s.wordIndex === 4000);
+  assert.ok(middleSnapshot, 'save 2 snapshot should still be present in history (no eviction — cap is 5)');
+  assert.equal(middleSnapshot.wordCount, 8000, 'save 2 snapshot retains its own saved wordCount, unaffected by later saves');
+
+  // Simulate resuming that middle snapshot in a session whose live word count
+  // is 10,000 — i.e. matching the CURRENT (reconverged) record.wordCount, but
+  // NOT matching the middle snapshot's own basis (8000).
+  const currentLiveWordCount = 10000;
+
+  // The OLD (pre-#76) logic compared only record.wordCount vs. current live
+  // count — 10000 === 10000 — and would have wrongly reported "no drift",
+  // reusing the snapshot's stale raw wordIndex (4000) as-is, even though that
+  // index was computed against an 8000-word tokenization.
+  const oldBuggyTarget = resolveResumeTargetOldBuggy(finalRecord.wordCount, middleSnapshot, currentLiveWordCount);
+  assert.equal(oldBuggyTarget, middleSnapshot.wordIndex,
+    'sanity: the old record-level-only comparison silently reuses the stale raw index — this is the bug');
+
+  // The NEW (#76-fixed) logic uses the snapshot's OWN wordCount (8000) vs.
+  // the current live count (10000) — correctly detects drift and falls back
+  // to percent, regardless of what the record-level wordCount happens to be.
+  const target = resolveResumeTarget(middleSnapshot, finalRecord.wordCount, currentLiveWordCount);
+  const expectedByPercent = Math.round(middleSnapshot.percent * (currentLiveWordCount - 1));
+  assert.equal(target, expectedByPercent,
+    `expected percent-based target ${expectedByPercent}, got ${target}`);
+  assert.notEqual(target, middleSnapshot.wordIndex,
+    'must not silently reuse the stale raw wordIndex just because record-level wordCount happened to match');
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

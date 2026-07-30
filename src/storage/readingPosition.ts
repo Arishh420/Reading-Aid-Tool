@@ -24,6 +24,16 @@ export interface PositionSnapshot {
    */
   percent: number;
   savedAt: number; // epoch ms
+  /**
+   * The word count live at the moment THIS snapshot was saved. BookRecord's
+   * top-level wordCount is overwritten on every save, so it only reflects the
+   * most recent save's tokenization — an older snapshot (e.g. a history
+   * entry) needs its own basis to detect drift correctly, otherwise a later
+   * save that happens to re-converge the record-level count can mask drift
+   * for that older snapshot (issue #76). Optional for backward compatibility
+   * with snapshots persisted before this field existed.
+   */
+  wordCount?: number;
 }
 
 export interface BookRecord {
@@ -58,7 +68,7 @@ export function saveReadingPosition(
   wordCount: number,
 ): void {
   const percent = wordCount > 1 ? wordIndex / (wordCount - 1) : 0;
-  const snapshot: PositionSnapshot = { wordIndex, percent, savedAt: Date.now() };
+  const snapshot: PositionSnapshot = { wordIndex, percent, savedAt: Date.now(), wordCount };
 
   const existing = loadBookRecord(fingerprint);
   let history = existing?.history ?? [];

@@ -251,11 +251,21 @@ export default function App() {
     // parser change re-tokenized the same file bytes), the raw wordIndex may
     // point at the wrong word even though the fingerprint still matched.
     // Fall back to the saved percent, which is still meaningful (issue #48).
+    //
+    // Use the SNAPSHOT's own wordCount, not the record-level one — the record's
+    // wordCount is overwritten on every save, so it only reflects the most
+    // recent save's tokenization. A later save can re-converge the record-level
+    // count to match the current parse even though an older snapshot (e.g. a
+    // history entry) was saved under a different count — the record-level
+    // comparison alone would then miss that drift (issue #76). Snapshots saved
+    // before this field existed have no wordCount; fall back to the
+    // record-level comparison for those so old localStorage data keeps working.
+    const savedWordCount = snapshot.wordCount ?? resumeRecord?.wordCount;
     let target: number;
-    if (resumeRecord && resumeRecord.wordCount !== len) {
+    if (savedWordCount !== undefined && savedWordCount !== len) {
       target = len > 1 ? Math.round(snapshot.percent * (len - 1)) : 0;
       console.info(
-        `[resume] wordCount drift detected (saved ${resumeRecord.wordCount}, current ${len}) — resuming by percent (${Math.round(snapshot.percent * 100)}%) at word ${target} instead of raw index ${snapshot.wordIndex}`,
+        `[resume] wordCount drift detected (saved ${savedWordCount}, current ${len}) — resuming by percent (${Math.round(snapshot.percent * 100)}%) at word ${target} instead of raw index ${snapshot.wordIndex}`,
       );
     } else {
       target = snapshot.wordIndex;
