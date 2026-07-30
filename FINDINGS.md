@@ -1606,6 +1606,92 @@ inferring it from passing unit tests.
 
 ---
 
+## Feature — Persistent RSVP delimiter spans (issue #84)
+
+### F39 — Delimiter-span computation proven against the real bundled module; the splitOrp "regression" is a by-construction guard, not anchor-position verification; rendered appearance unverified ✅🧪❓
+
+Issue #84 (adversarial-audit finding, not a user repro): in RSVP a
+quoted/parenthetical span is marked only on the tokens carrying the raw
+delimiter (`"the`, `thing"`), so middle words flash bare. New pure module
+`src/model/delimiterSpans.ts` computes, per word, mirrored delimiter
+decoration (`prefix`/`suffix` strings) from a per-block delimiter stack;
+`Rsvp.tsx` writes them around `splitOrp`'s output imperatively. See D110–D113
+for the design (all-nesting/no-cap, single quotes excluded, per-block reset,
+parallel array).
+
+**The core mechanism, and why it can't double-render (✅ headless):** the
+decoration is built from two stack snapshots — `prefix` = openers open
+*before* the token (outer→inner), `suffix` = closers of the stack *after* the
+token (inner→outer). A span that opens or closes *within* a token is present
+in only one snapshot, so the token's own literal delimiter renders through
+`splitOrp` and the decoration fills only the missing side; a span fully inside
+one token (`(aside)`) is in neither snapshot, so it is not re-wrapped into
+`((aside))`. Proven directly in the suite, not just reasoned.
+
+**What was actually run (✅):** `src/model/delimiterSpans-headless-test.mjs`,
+**18/18 passed** — esbuild-bundles and imports the REAL
+`src/model/delimiterSpans.ts` AND the real `src/pacer/orp.ts` (same
+`bundleAndImport` pattern as F24/F32/F34/F38), not a hand-copy. Covers every
+issue-#84 acceptance item: straight-quote parity across many tokens; curly
+double quotes; nesting in both orders (`("the whole thing")` →
+`("the")`/`("whole")`/`("thing")`, and `"a (b c) d"` → `"a"`/`"(b)"`/`"(c)"`/
+`"d"`); an unclosed `(` decorating to the end of its block *and* the next
+block starting fresh with no leak (D112); `(aside)` not double-wrapped; a
+trailing period after a closing quote (`"end."`) still closing the span
+(whole-token scan, not edge-only); and — the Q2 crux — a contraction-heavy
+passage (`don't`, `it's`, `readers'`, `y'all`, `dogs’`, `'n'`, `'90s`,
+`wouldn’t`) producing **zero** decoration on every token, plus contractions
+*inside* a real double-quote getting only the double quote (`"don’t"`).
+
+**The splitOrp regression check is a by-construction guard, NOT anchor
+verification — stated honestly per the working agreement.** Three checks
+assert the anchor letter and `pre`/`anchor`/`post` from `splitOrp(word.text)`
+are byte-identical with the feature active, and that stripping `prefix`/
+`suffix` off the rendered string returns exactly `splitOrp`'s bare output.
+These **pass by construction**: the module never calls `splitOrp`, and
+`Rsvp.tsx` feeds it the unmodified `word.text` while writing the decoration to
+`preRef`/`postRef.textContent` around the result. The checks therefore *cannot
+fail* unless a future refactor feeds delimiter-padded text into `splitOrp` —
+they are a guard against that regression, and nothing more. They do **not**
+verify that the rendered ORP anchor stays on its fixed x: headless has no
+layout engine, so the anchor's actual on-screen position is unobservable here.
+The fixed-x guarantee rests on the CSS-grid+monospace argument (D29/F3) plus
+issue #84's second comment (grid proportions, not text length, set the anchor
+x), neither of which this suite exercises.
+
+**🧪 Build:** `npm run build` (`tsc -b && vite build`) clean — 72 modules
+transformed (was 71; the new module), no type errors. Neighboring suites
+re-run green as a regression check: `model/headless-test.mjs` (tokenizer)
+17/17, `pacer/orp-headless-test.mjs` 5/5, `pacer/headless-test.mjs` 13/13.
+
+**No `index.css` change:** the decoration is plain text written into the
+existing `.rsvp-pre`/`.rsvp-post` spans, styled identically to the token's own
+delimiters — no new element or rule.
+
+**Not verified (❓), flagged not implied:**
+- Nothing was watched in a browser. Specifically unverified: that a real
+  quoted passage flashes `"the"` `"whole"` `"thing"` legibly; that the ORP
+  anchor visibly stays put with decoration present (see the by-construction
+  caveat above); that the imperative `spansRef` write reads correctly on the
+  first paint after a document load (`spansRef` is populated during render like
+  `wordsRef`, specifically so it can't be stale/null when `apply()` fires from
+  `pacer.subscribe` — but this was reasoned, not observed).
+- **`pre`/`post` overflow is a real, known, unaddressed limitation.**
+  `.rsvp-word` is `white-space: pre` (index.css:690), so a long word plus
+  delimiters overflows its `2fr`/`3fr` grid column rather than wrapping. For
+  typical depth-1–2 nesting this adds 1–2 characters and is negligible against
+  the word length itself; pathological deep nesting could overflow, but that is
+  the same pre-existing long-word overflow, not a new failure introduced here.
+  Reported per the task, not fixed.
+- **Nested *straight* quotes can't be disambiguated by parity** (`"he said
+  "hi""` reads the inner `"` as closing the outer). Inherent to U+0022 having
+  one glyph for both roles; real prose mixes curly/single for nesting. Known
+  and accepted, not fixed.
+
+(2026-07-30, feature/rsvp-delimiter-spans)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.
@@ -1771,6 +1857,20 @@ inferring it from passing unit tests.
   bundled modules; all 9 pre-existing suites re-run and still green. 🧪 build
   clean. Real-browser RSVP rendering/felt-pause verification still
   outstanding, same class of gap as F22/F23/F30/F31/F35.
+- **F39** added (2026-07-30, issue #84): persistent RSVP delimiter spans — a
+  quoted/parenthetical run was marked only on the tokens carrying the raw
+  delimiter, so middle words flashed bare. New pure module
+  `src/model/delimiterSpans.ts` (parallel array, `types.ts` untouched)
+  computes per-word mirrored decoration from a per-block delimiter stack;
+  `Rsvp.tsx` writes it around `splitOrp`'s output imperatively. All nesting
+  shown (no cap, D110); single quotes excluded to survive contractions
+  (D111); stack resets per block to bound corruption blast radius (D112).
+  New `src/model/delimiterSpans-headless-test.mjs`, 18/18 against the real
+  bundled module + `orp.ts`. The splitOrp checks are a by-construction
+  regression guard (decoration never reaches `splitOrp`), NOT anchor-position
+  verification — headless can't observe layout. 🧪 build clean (72 modules);
+  neighboring suites (tokenizer 17/17, orp 5/5, pacer 13/13) re-run green.
+  Browser rendering + anchor-stays-put still ❓.
 
 ### F20 — Reading-position persistence: headless-verified invariants ✅
 

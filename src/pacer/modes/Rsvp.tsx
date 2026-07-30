@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Document, Word } from '../../model/types';
+import { computeDelimiterSpans } from '../../model/delimiterSpans';
 import { splitOrp } from '../orp';
 import type { PacerApi } from '../usePacer';
 import { RsvpContextStrip } from './RsvpContextStrip';
@@ -62,6 +63,13 @@ export function Rsvp({
 
   const wordsRef = useRef(words);
   wordsRef.current = words;
+  // Per-word delimiter decoration (issue #84), index-aligned with `words`.
+  // Populated during render (NOT in an effect) like wordsRef above, so it is
+  // never stale/null when apply() fires from pacer.subscribe on the first
+  // paint after a document loads.
+  const spans = useMemo(() => computeDelimiterSpans(document), [document]);
+  const spansRef = useRef(spans);
+  spansRef.current = spans;
   const wpmRef = useRef(wpm);
   wpmRef.current = wpm;
   const dwellRef = useRef(dwell);
@@ -71,10 +79,18 @@ export function Rsvp({
 
   const apply = useCallback((index: number) => {
     const word = wordsRef.current[index];
+    // Bare token text into splitOrp — the anchor index is derived from its
+    // length, so the delimiter decoration must NOT be fed in here (D29/F3).
     const { pre, anchor, post } = splitOrp(word ? word.text : '');
-    if (preRef.current) preRef.current.textContent = pre;
+    // Persistent delimiter spans (issue #84): render the open-span delimiters
+    // mirrored AROUND splitOrp's output, so a quoted/parenthetical run stays
+    // marked on every flash, not just the tokens carrying the raw quote.
+    const deco = spansRef.current[index];
+    const prefix = deco ? deco.prefix : '';
+    const suffix = deco ? deco.suffix : '';
+    if (preRef.current) preRef.current.textContent = prefix + pre;
     if (anchorRef.current) anchorRef.current.textContent = anchor;
-    if (postRef.current) postRef.current.textContent = post;
+    if (postRef.current) postRef.current.textContent = post + suffix;
 
     // Pause cue: deplete a thin tick under the anchor over the dwell. The tick
     // is absolutely positioned and centred on the anchor, so the anchor itself
@@ -108,11 +124,13 @@ export function Rsvp({
     return pacer.subscribe(apply);
   }, [pacer.indexRef, pacer.subscribe, apply]);
 
-  // Re-render the current word if the font size changes the layout.
+  // Re-render the current word if the font size changes the layout, or if the
+  // document (and thus `spans`) changes so the decoration refreshes even when
+  // the pacer index itself doesn't move.
   // Depends on pacer.indexRef (stable ref object) — see effect above.
   useEffect(() => {
     apply(pacer.indexRef.current);
-  }, [settings.fontSize, naturalPauses, pacer.indexRef, apply]);
+  }, [settings.fontSize, naturalPauses, spans, pacer.indexRef, apply]);
 
   return (
     <div className="rsvp-stage" style={{ fontSize: `${settings.fontSize}rem` }}>

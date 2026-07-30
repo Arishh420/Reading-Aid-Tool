@@ -308,6 +308,36 @@ content; lines rise one at a time, not a page-flip).
 web-coupled — an RN port reproduces "pinned line + text scrolls under it" (with a
 line-snapped offset) with `Animated`, not a page swap.
 
+### Persistent delimiter spans — `src/model/delimiterSpans.ts` (RSVP only, issue #84)
+RSVP flashes one word at a time, so a quoted/parenthetical span is marked only
+on the token carrying the raw delimiter (`"the`, `thing"`) and every word
+between flashes bare. `computeDelimiterSpans(doc)` walks the flat word stream
+and returns a **parallel array** (index-aligned with `flattenWords`, nothing
+stored on `Word` — D113) of `{ prefix, suffix }` decoration strings, so every
+word inside a span flashes wrapped and mirrored (`"whole"`, `("whole")`).
+
+- **Computed outside `splitOrp`.** `splitOrp` derives the anchor index from
+  the string length it receives (§8), so the decoration is *never* fed in.
+  `Rsvp.tsx` passes the bare `word.text` to `splitOrp` and writes the
+  `prefix`/`suffix` around the result — imperatively, into the same
+  `preRef`/`postRef` `textContent` the hot path already uses, so no per-word
+  React state is introduced (CLAUDE.md §4). The decoration array is memoized
+  per document and held in a ref populated *during render* (like `wordsRef`),
+  so it can't be stale when `apply()` fires on the first paint.
+- **The mechanism** is two stack snapshots: `prefix` = openers open *before*
+  the token, `suffix` = closers of the stack *after* it — so a token's own
+  literal delimiter renders through `splitOrp` and the decoration fills only
+  the missing side, and `(aside)` (a span fully inside one token) is not
+  re-wrapped. The stack resets per block (D112). Tracks `()`/`[]` and double
+  quotes (straight U+0022 by parity, curly U+201C/U+201D as a pair); single
+  quotes are excluded so contractions can't corrupt state (D111).
+
+**`delimiterSpans.ts` is portable** (pure string/array logic over the model,
+no DOM/React — ships with `orp.ts` and the model layer to the Android `core/`
+seed). The decoration *rendering* in `Rsvp.tsx` is the only web-coupled part;
+an RN port reuses `computeDelimiterSpans` verbatim and writes `prefix`/`suffix`
+into the equivalent `<Text>` spans around the reused `splitOrp` output.
+
 ---
 
 ## 9. Virtualization & the reading surface — `src/reader/Reader.tsx`
@@ -506,6 +536,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `reader/bionic.ts` | `splitBionic` head/tail math |
 | `pacer/orp.ts` | ORP index + split |
 | `model/blocks.ts` | flat-word-index → block lookup (binary search) |
+| `model/delimiterSpans.ts` | per-word RSVP delimiter decoration (parallel array, issue #84) |
 | `pacer/dwell.ts` | dwell multipliers |
 | `pacer/usePacer.ts` | clock: timing, dwell, ≤1/frame clamp, chunk stepping, pub/sub (rAF & React exist in RN) |
 | `pacer/keyboard.ts` | `spaceTogglesFrom` — which focused element types Space should toggle the pacer from (issue #38) |
@@ -640,3 +671,16 @@ Markdown parser is portable.
   new headless-verified against the real bundled `tokenize`/
   `buildDwellMultipliers`, all 9 pre-existing suites re-run clean (FINDINGS
   F38).
+- **Persistent RSVP delimiter spans** (issue #84, 2026-07-30): new portable
+  `model/delimiterSpans.ts` (`computeDelimiterSpans(doc)`) returns a parallel
+  array of per-word `{ prefix, suffix }` delimiter decoration from a
+  per-block stack; `pacer/modes/Rsvp.tsx` writes it imperatively around
+  `splitOrp`'s output (never into it), so a quoted/parenthetical span stays
+  marked on every flash (`"whole"`, `("whole")`). All nesting shown, no cap
+  (D110); single quotes excluded so contractions can't corrupt state (D111);
+  stack resets per block to bound corruption blast radius (D112); parallel
+  array leaves `Word`/`reindexWords` untouched (D113). `delimiterSpans.ts` is
+  portable; only the `Rsvp.tsx` rendering is web-coupled. 18/18 headless
+  against the real bundled module + `orp.ts`; the splitOrp checks are a
+  by-construction regression guard, not anchor-position verification
+  (FINDINGS F39). No `index.css` change. Build clean (72 modules).
