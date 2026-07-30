@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Document, Word } from '../../model/types';
 import { computeDelimiterSpans } from '../../model/delimiterSpans';
 import { splitOrp } from '../orp';
+import { dwellMultiplier } from '../dwell';
 import type { PacerApi } from '../usePacer';
 import { RsvpContextStrip } from './RsvpContextStrip';
 
@@ -97,7 +98,7 @@ export function Rsvp({
     // never moves. Width/duration scale with the dwell multiplier.
     const tick = tickRef.current;
     if (!tick) return;
-    const mult = naturalRef.current ? dwellRef.current?.[index] ?? 1 : 1;
+    const mult = dwellMultiplier(dwellRef.current, naturalRef.current, index);
     if (mult > 1) {
       const dwellMs = (60000 / wpmRef.current) * mult;
       const widthEm = Math.min(2.2, 0.6 * mult);

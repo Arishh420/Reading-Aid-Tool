@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Word } from '../model/types';
+import { dwellMultiplier } from './dwell';
 
 /**
  * Pacer core (§7.2), reworked for performance (perf hardening pass).
@@ -140,7 +141,7 @@ export function usePacer(words: Word[], wpm: number, options: PacerOptions = {})
         if (nx === -1) break;
         last = nx;
       }
-      const mult = naturalPausesRef.current ? dwellRef.current?.[last] ?? 1 : 1;
+      const mult = dwellMultiplier(dwellRef.current, naturalPausesRef.current, last);
       const threshold = msPerWord * size * mult;
 
       if (accRef.current >= threshold) {

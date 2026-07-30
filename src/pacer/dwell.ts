@@ -29,6 +29,21 @@ export const DWELL_PARAGRAPH = 3;
 // Closing quotes/brackets that can trail the real punctuation (e.g. `end."`).
 const TRAILING_CLOSERS = /["'”’)\]}]+$/;
 
+/**
+ * Dwell multiplier for a given flat word index, gated on the Natural pauses
+ * toggle. Shared by usePacer's clock (gates on the last word of a chunk step)
+ * and Rsvp's pause-cue (gates on the word being flashed) — the two callers
+ * pass different indices, so this takes the index as a parameter rather than
+ * deriving one itself (see DECISIONS.md, issue #51).
+ */
+export function dwellMultiplier(
+  dwell: number[] | undefined,
+  naturalPauses: boolean,
+  index: number,
+): number {
+  return naturalPauses ? dwell?.[index] ?? 1 : 1;
+}
+
 /** Dwell multiplier implied by a token's trailing punctuation (no block info). */
 export function trailingDwell(token: string): number {
   const trimmed = token.replace(TRAILING_CLOSERS, '');

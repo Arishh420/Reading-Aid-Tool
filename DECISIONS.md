@@ -1788,6 +1788,58 @@ entries answer the design questions that comment left open.
   history protecting; a parallel array sidesteps the question entirely, which
   is why the issue itself suggested it.
 
+## Bug-fix — Dwell-gating logic duplicated between usePacer.ts and Rsvp.tsx (issue #51)
+
+- **D114 · Shared `dwellMultiplier(dwell, naturalPauses, index)` helper added to
+  `src/pacer/dwell.ts`, taking all three as parameters rather than the
+  single-argument `dwellFor(index)` shape the issue's acceptance criteria
+  named.** *Adversarial-audit finding (issue #51, LOW, static analysis, not a
+  user repro).* `usePacer.ts`'s clock (`naturalPausesRef.current ?
+  dwellRef.current?.[last] ?? 1 : 1`) and `Rsvp.tsx`'s pause-cue (`naturalRef.current
+  ? dwellRef.current?.[index] ?? 1 : 1`) computed byte-identical gating logic
+  independently — the exact duplicate-logic drift class that produced the
+  original C1 (`MAX_SAFE_INTEGER`) bug (F16) in a prior audit, and one `src/pacer/`
+  is explicitly tagged to ship unchanged to the Android `core/` seed
+  (ARCHITECTURE.md Porting notes), so a future divergence between the two
+  copies would ship silently to the port.
+
+  **Home:** `src/pacer/dwell.ts` — already portable, already holds
+  `buildDwellMultipliers`/`trailingDwell`, no new file needed.
+
+  **Signature deviation from the issue, recorded so the acceptance wording and
+  the shipped code don't read as a mismatch later:** issue #51's acceptance
+  criteria names a `dwellFor(index)` helper — a single-argument form. Taking
+  only `index` would require the helper to close over `dwell` and
+  `naturalPauses` from its enclosing scope, making it a stateful closure
+  bound to whichever call site constructed it (`usePacer`'s refs, or `Rsvp`'s
+  refs) rather than a portable pure function callable identically from both.
+  Since the whole reason this LOW issue was pulled forward ahead of
+  higher-priority work is that `dwell.ts` ships to the Android port
+  unchanged, a closure-shaped helper would defeat the purpose it exists for —
+  it would need to be re-constructed per call site anyway, which is exactly
+  the duplication being removed. `dwellMultiplier(dwell, naturalPauses,
+  index)` takes all three as explicit parameters, keeping it a pure function
+  with no closed-over state; each call site passes its own ref's `.current`
+  value and its own index (`last` for `usePacer`, the flashed word's `index`
+  for `Rsvp` — per the issue's own explicit warning, these are NOT
+  interchangeable and the helper does not derive either one itself).
+
+  **Behavior is unchanged, including the fallback chain:**
+  `naturalPauses ? dwell?.[index] ?? 1 : 1` is the exact same expression
+  both call sites already evaluated, now shared instead of duplicated —
+  `dwell === undefined` and an out-of-range `index` both still fall back to
+  `1` via the existing `?.[index] ?? 1` chain, and `naturalPauses === false`
+  still short-circuits to `1` before either is read.
+
+  Alternative rejected: matching the issue's literal `dwellFor(index)`
+  proposal via a closure factory (e.g. `makeDwellFor(dwellRef, naturalRef)`
+  returning a bound function) — considered, but adds an indirection layer
+  (a function that returns a function) for no behavioral gain over a plain
+  three-argument pure function, and a closure factory is a slightly worse fit
+  for the Android port than a parameterized pure function, since RN consumers
+  would need to reconstruct the same factory-call pattern rather than just
+  calling the function directly with their own values. Fixes #51.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological

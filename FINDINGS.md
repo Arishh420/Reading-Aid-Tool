@@ -1692,6 +1692,57 @@ delimiters — no new element or rule.
 
 ---
 
+## Bug-fix — Dwell-gating logic duplicated between usePacer.ts and Rsvp.tsx (issue #51)
+
+### F40 — Shared `dwellMultiplier` helper: unit-verified as a pure function; NOT proof the rendered pause cue is unchanged ✅🧪❓
+
+Issue #51 (LOW, adversarial-audit finding, static analysis, not a user
+repro): `usePacer.ts` and `Rsvp.tsx` each independently computed
+`naturalPauses ? dwell?.[index] ?? 1 : 1`, gating on their own index
+(`last` for the clock, the flashed word's `index` for the pause cue — not
+interchangeable). Extracted to one shared `dwellMultiplier(dwell,
+naturalPauses, index)` in `src/pacer/dwell.ts`; both call sites now import
+and call it with their own index, no other line in either file changed. See
+DECISIONS.md D114 for the signature-deviation reasoning (parameterized pure
+function vs. the issue's proposed single-argument `dwellFor(index)` closure
+shape).
+
+**What was actually run, not just reasoned about (✅):** 4 new checks
+appended to `src/pacer/dwell-headless-test.mjs` (esbuild-bundles the real
+`src/pacer/dwell.ts` and imports both `buildDwellMultipliers` and the new
+`dwellMultiplier`, same pattern as the file's existing 5 roll-up checks — not
+a hand-copied restatement): `naturalPauses=false` returns `1` regardless of
+the dwell array's contents; `dwell=undefined` returns `1`; an out-of-range
+index returns `1` (array read is `undefined`, falls through the `?? 1`); a
+real multiplier (`3` at a valid index with `naturalPauses=true`) passes
+through unchanged. **9/9 passed** (5 pre-existing roll-up checks + 4 new).
+
+**Regression check (✅), all six suites named in the task, real output:**
+`pacer/dwell-headless-test.mjs` 9/9, `pacer/headless-test.mjs` 13/13,
+`pacer/orp-headless-test.mjs` 5/5, `model/headless-test.mjs` 17/17,
+`model/delimiterSpans-headless-test.mjs` 18/18, `storage/headless-test.mjs`
+15/15 — all unchanged from their pre-refactor pass counts, confirming this
+pure-logic extraction touched nothing those suites exercise.
+
+**🧪 Build:** `npm run build` (`tsc -b && vite build`) clean — 72 modules
+transformed (same count as before this change — no new file was added, only
+edits to three existing files), no type errors.
+
+**Not verified — explicitly flagged, not implied fixed (❓):** headless tests
+prove the helper returns the same numbers the old inline expressions did,
+for both call sites' semantics (index-out-of-range and undefined-dwell
+cases weren't previously exercised as isolated unit cases, only implicitly
+via `buildDwellMultipliers`'s output). They do **not** and cannot prove the
+*rendered* RSVP pause cue (`Rsvp.tsx`'s depleting tick under the anchor, D31)
+looks or times identically in a browser — this is a pure-function
+refactor with no runtime/DOM observation attached, same evidentiary gap this
+file already flags for other refactors touching render-adjacent code
+(F30/F31/F35). Nothing was watched in a browser for this change.
+
+(2026-07-30, fix/dwell-gating-duplication)
+
+---
+
 ## Change log
 - Created at the M7 documentation audit (2026-06-26). Keep current with
   ARCHITECTURE.md / DECISIONS.md.

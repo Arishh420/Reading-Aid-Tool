@@ -31,9 +31,9 @@ const tmpPath = path.join(__dirname, `.headless-dwell-${process.pid}.mjs`);
 const { writeFile, unlink } = await import('node:fs/promises');
 await writeFile(tmpPath, code);
 
-let buildDwellMultipliers;
+let buildDwellMultipliers, dwellMultiplier;
 try {
-  ({ buildDwellMultipliers } = await import(`${tmpPath}?t=${Date.now()}`));
+  ({ buildDwellMultipliers, dwellMultiplier } = await import(`${tmpPath}?t=${Date.now()}`));
 } finally {
   await unlink(tmpPath);
 }
@@ -116,6 +116,36 @@ function doc(tokenSpecs) {
   const dwell = buildDwellMultipliers(d);
   check('word— (post-split attached dash): dwell 1.75', dwell[0], 1.75);
 }
+
+// --- dwellMultiplier (issue #51): shared gating helper used by usePacer + Rsvp ---
+
+// naturalPauses false -> 1, regardless of what's in the dwell array
+check(
+  'dwellMultiplier: naturalPauses false returns 1',
+  dwellMultiplier([2.5, 1.75, 3], false, 0),
+  1,
+);
+
+// dwell array undefined -> 1 (the `dwell?.[index] ?? 1` fallback)
+check(
+  'dwellMultiplier: dwell undefined returns 1',
+  dwellMultiplier(undefined, true, 0),
+  1,
+);
+
+// index out of range -> array read is undefined -> falls back to 1
+check(
+  'dwellMultiplier: out-of-range index returns 1',
+  dwellMultiplier([2.5, 1.75], true, 5),
+  1,
+);
+
+// real multiplier passes through unchanged when naturalPauses is true
+check(
+  'dwellMultiplier: real multiplier passes through',
+  dwellMultiplier([2.5, 1.75, 3], true, 2),
+  3,
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
