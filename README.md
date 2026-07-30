@@ -103,11 +103,14 @@ move it, and offers to **resume where you left off**.
   chunk per step. *Chunk size*: 2–4.
 
 ### 3. Set the pace & controls
-- **WPM** — slider or type an exact value, **100–1000** (default **300**).
+- **WPM** — slider or type an exact value, **50–1000** (default **300**).
   Changes apply immediately, even mid-play.
 - **Play / Pause**, **Restart**, and a **scrubber** to seek anywhere.
 - **Word** field — type a word number to jump to it; a progress bar and
   percentage show your position.
+- While the pacer is playing, the scrubber and Word field are hidden (a
+  minimal HUD keeps just transport, WPM, and read-only progress); they
+  reappear when you pause.
 
 ### 4. Presets
 A **Presets** panel bundles a reading mode with a full settings profile (WPM,
@@ -136,7 +139,11 @@ applied preset.
 | `Home` | Restart from the beginning |
 | Click a word | Jump the pacer to that word |
 
-(Shortcuts are ignored while you're typing in a field or a control is focused.)
+(`Space` toggles play/pause from almost anywhere, including the Mode
+dropdown — it only yields to the Play/Pause button itself and controls with
+their own Space action (text fields, checkboxes, radio buttons, file
+pickers). `→`/`←`/`Home` yield to any focused field, dropdown, or button, so
+they don't hijack a slider or select.)
 
 ---
 
@@ -157,7 +164,8 @@ reader/pacer behave identically regardless of source.
 - Text is extracted with pdf.js and cleaned up heuristically: repeated
   headers/footers (text appearing on ≥ ~half the pages) and bare page numbers are
   dropped, hyphenated line-breaks are re-joined, and lines are reflowed into
-  paragraphs on vertical gaps.
+  paragraphs on vertical gaps, a first-line indent relative to that page's body
+  margin, or a page boundary (paragraphs always break across pages).
 - **No heading detection** — PDF content becomes paragraphs.
 - **Multi-column layouts, tables, footnotes, and drop-caps will reflow poorly**
   (line grouping is position-based).
@@ -182,8 +190,10 @@ reader/pacer behave identically regardless of source.
 src/
   main.tsx, App.tsx, index.css   # entry, app shell + state, styles
   model/
-    types.ts        # Document / Block / Word model
-    tokenize.ts     # text → Word[]; flatten + reindex
+    types.ts            # Document / Block / Word model
+    tokenize.ts         # text → Word[]; flatten + reindex
+    blocks.ts           # flat word index → block lookup (binary search)
+    delimiterSpans.ts   # RSVP per-word quote/paren delimiter decoration
   parsers/
     index.ts        # parse(file, format) dispatcher (lazy-loads pdf/epub)
     markdown.ts     # Markdown → Document
@@ -197,17 +207,26 @@ src/
     bionic.ts       # head/tail split logic
   pacer/
     usePacer.ts     # the clock: index, timing, dwell, ≤1-word/frame, pub/sub
+    keyboard.ts     # Space-key routing — which focused elements yield
     PacerControls.tsx # play/pause/restart/seek/WPM
     ModeSettings.tsx  # mode dropdown + per-mode settings
     dwell.ts        # punctuation dwell multipliers
     orp.ts          # RSVP optimal-recognition-point math
     modes/
       FlowingHighlight.tsx, Rsvp.tsx, ChunkHighlight.tsx
+      RsvpContextStrip.tsx  # RSVP dim, scrolling paragraph-context view
       scrollHelpers.ts
+  storage/
+    storage.ts          # localStorage wrapper (readingaid_v1: prefix)
+    readingPosition.ts  # book fingerprint + saved reading position
+  presets/
+    presets.ts      # preset bundle type, built-ins, CRUD, bundlesEqual
   ui/
-    FileInput.tsx   # format dropdown + picker + drag/drop
-    Settings.tsx    # bionic, natural pauses, text size, line width
+    FileInput.tsx    # format dropdown + picker + drag/drop
+    Settings.tsx     # bionic, natural pauses, text size, line width
     ThemeSelector.tsx, theme.ts   # 4 themes
+    PresetsPanel.tsx # presets picker: apply / save / rename / delete
+    ResumePrompt.tsx # pre-reader "resume where you left off" screen
     sample.ts       # built-in sample document
 ```
 
