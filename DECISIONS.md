@@ -32,9 +32,9 @@
     (see D67–D76), using a content fingerprint for book identity. Settings
     auto-persistence (WPM/bionic/theme across reloads) remains deferred. Original
     entry left intact per append-only discipline.
-- **D3 · Hand-built Vite scaffold.** Avoided `npm create vite` boilerplate; built
-  the minimal shell directly to keep M1 tightly scoped to project + model +
-  tokenizer.
+- **D3 · (Archived.)** No longer load-bearing on any live code path; full
+  original entry (hand-built Vite scaffold, M1) preserved verbatim in
+  [DECISIONS-archive-v1.md](DECISIONS-archive-v1.md).
 
 ## Milestone 2 — Markdown parser + Reader
 
@@ -344,6 +344,12 @@
   drive the pacer globally, except when an input/select/textarea/**button** is
   focused — otherwise Space would double-fire (native button click + toggle) and
   arrows would hijack sliders.
+  **(Superseded in part — the Space clause only.** Narrowed by D86, then
+  redesigned by D89: Space now defaults to *toggle* and yields only for a
+  narrow enumerated set — the marked Play/Pause button, `TEXTAREA`, and
+  `text`/`checkbox`/`radio`/`file` inputs. **The arrows/Home clause above is
+  unchanged and still shipped** — arrows/Home still yield to any focused
+  input/select/textarea/button.)
 - **D41 · Empty document is an error, not a blank reader.** A parse that yields
   zero blocks (e.g. an empty/whitespace file) is rejected with a clear message
   rather than showing an empty pane.
@@ -1912,3 +1918,73 @@ entries above so it doesn't interrupt the decision flow.
   discipline, docs-are-part-of-"done", the two invariants) — the port's own
   decision/findings logs start fresh, but they inherit this repo's history
   by reference to the frozen archive, not by re-transcribing it.
+
+## Correction pass — DOC-AUDIT-V1 applied (issue #80)
+
+- **D116 · Append-only suspended for the full issue #80 execution — which
+  spans more than one PR, not a single pass — to apply DOC-AUDIT-V1's
+  verdicts in place; the #79 freeze is what makes that safe; append-only
+  resumes once #80's execution is complete, not after this PR; no survivor
+  was renumbered.** *Process decision, executing the audit committed as
+  `DOC-AUDIT-V1.md` (PR #92) against the live DECISIONS.md/FINDINGS.md.*
+  This log's own standing rule is append-only — corrections are appended
+  and marked, never rewritten in place. That rule is suspended for #80's
+  execution as a whole, which is being done across (at least) two PRs:
+  **Phase 1** (this PR — the mechanical corrections and relocations below)
+  and a **later Phase 2 PR** applying DOC-AUDIT-V1's SHARPEN and CONSOLIDATE
+  verdicts (proposed, not applied, in this pass — see Scope boundary below).
+  Both PRs edit entries in place, and both are covered by the same
+  suspension, and only because D115 (issue #79) had already taken a
+  verbatim, byte-identical snapshot of both files as they stood before any
+  of #80's edits (`DECISIONS-archive-v1.md`/`FINDINGS-archive-v1.md`, frozen
+  at commit `4df4888`): every word either PR edits or relocates is still
+  readable in full, unmodified, in the archive, so editing in place across
+  this whole execution loses nothing — it isn't the same risk append-only
+  exists to guard against. Append-only discipline resumes once #80's
+  execution — Phase 1 and the Phase 2 PR together — is complete; it does
+  not silently resume the moment this PR merges, and it is not weakened or
+  reinterpreted going forward.
+
+  **Applied in this pass:** D40 annotated with a supersession note scoped to
+  its Space clause only (superseded by D86, redesigned by D89) — its
+  arrows/Home clause is unchanged and stays live, so D40 itself was not
+  archived or rewritten wholesale, only annotated at the stale half. D3
+  archived to a one-line stub pointing at `DECISIONS-archive-v1.md` — the
+  one entry in this pass with no forward constraint on any live code and no
+  in-repo citation to preserve. FINDINGS.md: F26 gained a one-line forward
+  pointer to F36/D104 (its "14 checks" count is stale; the suite is now 15
+  and no longer hand-mirrors `readingPosition.ts`); F20 relocated to sit
+  between F19 and F21 (chronological order, where it belongs structurally);
+  F36 and F37 relocated ahead of F38–F40 (both predate F38 by two days and
+  had been stranded after it); the Change log section moved back to the
+  file's true footer, after every finding section including Presets: F20,
+  F36, and F37 had all come to sit *after* it, so it had stopped being the
+  file's last section. The FINDINGS.md verification legend gained one line
+  noting `F-PRESETS-1..5` predates the `F#` numbering scheme and keeps its
+  original IDs deliberately — not a gap to fill, per the issue #80 comment's
+  reasoning (renumbering to F41–F45 would file 2026-07-08 findings after
+  2026-07-30 ones in a log that's chronological by construction, and would
+  invalidate every existing in-file cross-reference to those five IDs for a
+  purely cosmetic gain).
+
+  **No entry ID changes; no renumbering of survivors.** D1–D115 and F1–F40
+  (plus `F-PRESETS-1..5`) all still resolve after this pass — D3 resolves to
+  its stub, every other ID resolves to unmodified or (for the audit's
+  SHARPEN/CONSOLIDATE list) not-yet-touched content. Monotonic means
+  increasing, not contiguous: an archived or consolidated ID becomes a
+  numbering gap, never a renumbering target, because renumbering would
+  invalidate cross-references both in this file and inside the frozen
+  archive, which by construction can never be updated to match.
+
+  **Scope boundary, deliberately not crossed here:** DOC-AUDIT-V1's SHARPEN
+  list (D2, D43, D45, D88, D89, D104, D105, D86; F22) and CONSOLIDATE list
+  (D48→D50, D59→D58) were proposed, not applied, in this pass — those change
+  what an entry *says*, which is a heavier edit than an annotation or a
+  relocation and was held for a later, separate Phase 2 PR under this same
+  #80 suspension, rather than bundled into this Phase 1 commit. Append-only
+  does not resume when this PR lands; it resumes only once that Phase 2 PR
+  has also landed and #80's execution is done. Alternative rejected:
+  applying everything DOC-AUDIT-V1 recommended in one PR — rejected because
+  a single PR spanning annotation, relocation, *and* content-rewrite verdicts
+  would be unreviewable, and review is the only safeguard for a log with no
+  test that catches a dropped finding.
