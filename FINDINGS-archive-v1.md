@@ -5,15 +5,6 @@
 > constraints the React Native port needs to inherit. Companion to
 > [ARCHITECTURE.md](ARCHITECTURE.md).
 
-> A verbatim, byte-identical snapshot of this file as it stood at the V1
-> boundary (commit `4df4888`) is preserved in
-> [FINDINGS-archive-v1.md](FINDINGS-archive-v1.md). That archive is frozen
-> permanently — it must never be edited, appended to, or sharpened. Issue #80
-> will condense this live file; anything trimmed or missing here can still be
-> read in full in the archive. See DECISIONS.md's D115 for the full reasoning
-> behind the freeze, including why the archive files carry no header of
-> their own.
-
 ## Verification legend
 
 How each claim here (and the load-bearing claims in ARCHITECTURE.md) was checked:

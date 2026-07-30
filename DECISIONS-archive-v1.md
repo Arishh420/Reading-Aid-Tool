@@ -8,13 +8,6 @@
 > PROJECT_CONTEXT.md is part of "done" for every milestone. A milestone is not
 > complete until the docs reflect it.
 
-> **Archive pointer.** A verbatim, byte-identical snapshot of this file as it
-> stood at the V1 boundary (commit `4df4888`) is preserved in
-> [DECISIONS-archive-v1.md](DECISIONS-archive-v1.md). That archive is frozen
-> permanently — it must never be edited, appended to, or sharpened. Issue #80
-> will condense this live file; anything trimmed or missing here can still be
-> read in full in the archive.
-
 ---
 
 ## Milestone 1 — Scaffold + model
@@ -1865,50 +1858,3 @@ entries above so it doesn't interrupt the decision flow.
   originally cited "D77"; corrected to **D85**. D77 is the unrelated presets
   decision — the mechanism D25 describes (`onRangeChange` no longer calling the
   full `apply()`) is D85's scroll-ownership split.
-
-## Documentation freeze — V1 archive snapshot (issue #79)
-
-- **D115 · Freeze a verbatim snapshot before sharpening; the archive carries
-  no header — provenance is carried by this entry and the commit instead;
-  the freeze establishes a forward-carrying principle for all docs after it,
-  including the Android port's.**
-  *User direction (issue #79), predecessor to the sharpening pass (issue
-  #80).* A verbatim copy of DECISIONS.md/FINDINGS.md is taken first so #80's
-  deletions and rewrites are recoverable by reading a file, not by
-  archaeology through git history. Append-only discipline protects the live
-  log from edits; it says nothing about protecting a log that's about to be
-  *intentionally* condensed, which is exactly the situation #80 creates — the
-  snapshot is what makes that condensing safe rather than lossy.
-  `DECISIONS-archive-v1.md`/`FINDINGS-archive-v1.md` were created via `cp` and
-  confirmed byte-identical to their sources (`cmp` plus SHA-256, both pairs
-  matching) before this entry was written. **Why the archive files carry no
-  header, banner, or provenance note of their own:** byte-identity is the
-  only independently verifiable form of "verbatim" — a `cmp`/checksum either
-  matches or it doesn't. Writing anything into the archive, even a
-  timestamped header, would turn "this is an exact copy" from a checkable
-  property into an embedded claim, and would itself break the byte-identity
-  it's supposed to attest to. Provenance (which commit, why, when) is instead
-  carried entirely outside the archive: by this decision entry, by the
-  pointer note at the top of this file (and its twin at the top of
-  FINDINGS.md), and by the commit message introducing both archive files.
-  Alternative rejected: a header comment in each archive file stating "frozen
-  snapshot as of commit X" — rejected for the reason above; such a header
-  would have to be excluded from the byte-identity check to exist at all,
-  undermining the one property that makes an archive trustworthy as a
-  verbatim record.
-
-  **Forward-carrying principle (issue #79's acceptance criterion, not
-  restated elsewhere).** The archive is immutable ground truth from this
-  point forward: the live DECISIONS.md/FINDINGS.md, and any future
-  documentation — in this repo or in the eventual React Native/Android port
-  repo (issue #7) — reference the archive rather than restating or
-  rewriting its contents. A doc that wants to explain a pre-freeze decision
-  or finding points at `DECISIONS-archive-v1.md`/`FINDINGS-archive-v1.md`
-  (or, post-#80, at whatever condensed entry survives in the live file); it
-  does not copy the archive's prose back in and does not re-litigate a
-  closed judgment call the archive already recorded in full. **When the
-  Android repo is scaffolded under #7, this principle goes into its
-  CLAUDE.md** alongside the verbatim-carried working agreement (branch/issue
-  discipline, docs-are-part-of-"done", the two invariants) — the port's own
-  decision/findings logs start fresh, but they inherit this repo's history
-  by reference to the frozen archive, not by re-transcribing it.
