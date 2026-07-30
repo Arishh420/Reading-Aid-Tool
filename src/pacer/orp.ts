@@ -27,7 +27,16 @@ export interface OrpSplit {
 
 /** Split a token into pre / anchor / post around its ORP letter. */
 export function splitOrp(text: string): OrpSplit {
-  const chars = [...text];
+  // Normalize to NFC first: splitting by code point (below) is a base
+  // character + combining mark(s) apart in decomposed (NFD) text — e.g. NFD
+  // "naïve" can anchor on a bare diaeresis mark, detached from its "i"
+  // (issue #77). NFC composes any decomposed sequence that has a precomposed
+  // equivalent, which covers the overwhelming majority of real-world NFD text
+  // (all standard Latin accented letters). It does not fix exotic combining
+  // sequences with no precomposed NFC form (e.g. some stacked-diacritic
+  // combinations) — true grapheme-cluster splitting would be needed for that,
+  // judged out of scope for this fix (see DECISIONS.md).
+  const chars = [...text.normalize('NFC')];
   if (chars.length === 0) return { pre: '', anchor: '', post: '' };
   const idx = Math.min(orpIndex(chars.length), chars.length - 1);
   return {
