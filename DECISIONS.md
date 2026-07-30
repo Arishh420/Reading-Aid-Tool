@@ -1717,6 +1717,77 @@ why*, for anyone reading the superseded text.
   RSVP is out of scope here — see D108's rejected alternative for why that
   would ripple well beyond RSVP.
 
+## Feature — Persistent RSVP delimiter spans (issue #84)
+
+RSVP flashes one word at a time, so a quoted/parenthetical span is marked only
+on the token physically carrying the opening or closing character (`"the`,
+`thing"`); every word between flashes bare and the reader loses track of
+whether they're still inside the quotation. A new pure module
+`src/model/delimiterSpans.ts` (`computeDelimiterSpans(doc)`) walks the flat
+word stream and returns a parallel array of `{ prefix, suffix }` decoration
+strings; `Rsvp.tsx`'s imperative `apply(index)` writes them around
+`splitOrp`'s output. Presentation was settled in issue #84's second comment
+(delimiters wrap each word on both sides, mirrored — `"the"` `"whole"`
+`"thing"`, `("whole")` nested) and is not re-litigated here; these four
+entries answer the design questions that comment left open.
+
+- **D110 · Nesting: show ALL open delimiters, mirrored, with no depth cap.**
+  Each word inside N open spans renders wrapped by all N openers (outermost
+  first) with the closers unwound in reverse (`("whole")`). *Rejected
+  innermost-only:* it destroys the feature's whole purpose — a reader inside
+  both a parenthesis and a quotation needs to see both, not just the inner
+  one. *Rejected a fixed depth cap:* a cap forces inventing a truncation glyph
+  and a rule for what to drop, for a case that essentially never occurs —
+  English prose rarely nests delimiters beyond depth 2. Deep nesting adds at
+  most `depth` characters to each of `pre`/`post`; because `.rsvp-word` is
+  `white-space: pre` (index.css:690) this can overflow its grid column, but
+  that is the *same* pre-existing long-word overflow, not a new failure mode
+  introduced here — documented (FINDINGS F39), not fixed.
+
+- **D111 · Single quotes are excluded entirely — never delimiters.** U+0027
+  `'`, U+2018 `'`, and U+2019 `'` are ignored by the stack scan; only double
+  quotes (straight U+0022 by parity, curly U+201C/U+201D as a distinct pair)
+  and brackets `()`/`[]` are tracked. *Rejected disambiguating single quotes
+  from apostrophes by position:* U+2019 is the dominant curly apostrophe and
+  U+0027 the straight one, both appearing inside `don't`, `it's`, `readers'`,
+  `y'all`, `'twas`, `rock 'n' roll`, `'90s` — and even the nominally
+  unambiguous *opening* curly single quote U+2018 is unsafe because its closer
+  U+2019 collides with every one of those contractions, so a span opened on
+  U+2018 would close on the first apostrophe rather than the real closer. A
+  feature that *corrupts* open/closed state on the first contraction is
+  strictly worse than one that simply doesn't decorate the (far rarer)
+  single-quoted span; parity/position heuristics can't be made reliable on
+  real prose. Verified against a contraction-heavy passage (FINDINGS F39).
+
+- **D112 · The delimiter stack resets at every block boundary.**
+  `computeDelimiterSpans` iterates `doc.blocks` and starts each block with an
+  empty stack. *Consequence:* a quotation that genuinely spans two paragraphs
+  loses its decoration in the second paragraph — mitigated in practice because
+  English typography re-opens the quotation mark at the start of each
+  continued paragraph, so the second paragraph's opening token carries the
+  quote and the span re-establishes itself. *Benefit (why this is the right
+  default):* a single malformed or unmatched delimiter — an opener with no
+  closer, or straight-quote parity thrown off by a nested straight quote — has
+  its damage *bounded to one block* rather than running away and mis-decorating
+  every subsequent word to the end of the document. Resetting per block trades
+  a rare, self-healing cosmetic miss for a hard ceiling on corruption blast
+  radius. *Rejected a document-global stack:* it would carry a genuine
+  cross-paragraph quote correctly in the uncommon case, but let one bad
+  delimiter poison the entire rest of the document in the failure case — the
+  worse trade.
+
+- **D113 · Per-word state is a parallel array; nothing is stored on `Word`.**
+  `computeDelimiterSpans(doc): DelimiterDecoration[]` returns a flat array in
+  `blocks.flatMap(b => b.words)` order — index-aligned with `flattenWords(doc)`
+  and therefore with the pacer's `currentWordIndex` (`Word.id === flat index`,
+  D13). Storing nothing on `Word` means `types.ts` is untouched and the
+  flat-index invariant + `reindexWords`-runs-last guarantee (F1/F16, CLAUDE.md
+  §4) are *provably* undisturbed — there is no new field for a parser to
+  populate or mis-order. *Rejected a field on `Word`:* it would work, but only
+  by re-opening the exact invariant this project spends most of its bug-fix
+  history protecting; a parallel array sidesteps the question entirely, which
+  is why the issue itself suggested it.
+
 ## Appendix — Log meta
 
 Bookkeeping about this log's own structure, kept out of the chronological
