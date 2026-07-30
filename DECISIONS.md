@@ -23,15 +23,12 @@
   is the spine; static types give compile-time safety for indexing/seeking and a
   cleaner contract for the future React Native port. The spec's examples were
   already typed.
-- **D2 · Persistence: settings-only, deferred.** *User fork.* When localStorage
-  lands, persist global settings (bionic, WPM, mode, theme) but **not** document
-  position (no stable doc identity yet). Not implemented through M5 — flagged for
-  a later milestone.
-  - *Correction (2026-07-08):* the deferral above was accurate as of M5.
-    Document-position persistence was subsequently implemented in issue #6
-    (see D67–D76), using a content fingerprint for book identity. Settings
-    auto-persistence (WPM/bionic/theme across reloads) remains deferred. Original
-    entry left intact per append-only discipline.
+- **D2 · Persistence: settings-only, deferred (original M5 entry archived).**
+  Document-position persistence was subsequently implemented in issue #6
+  (see D67–D76), using a content fingerprint for book identity. Settings
+  auto-persistence (WPM/bionic/theme across reloads) remains deferred.
+  Original M5 deferral text (user fork: persist bionic/WPM/mode/theme but
+  not document position) preserved verbatim in DECISIONS-archive-v1.md.
 - **D3 · (Archived.)** No longer load-bearing on any live code path; full
   original entry (hand-built Vite scaffold, M1) preserved verbatim in
   [DECISIONS-archive-v1.md](DECISIONS-archive-v1.md).
@@ -161,12 +158,11 @@
   body font (not the monospace flash, no bionic bolding) so it stays peripheral —
   you notice position without starting to *read* it, which would reintroduce
   exactly what RSVP removes.
-- **D45 · Clamp to ~2–3 lines + soft fade, default ON.** *User fork.* Keeps the
-  strip compact/glanceable; the active line is centered by scrolling on line
-  change only (never per word). Toggle "Show context" in RSVP settings, default
-  on; RSVP-only by construction.
-  **(Scroll model superseded by D47 — the clamp + per-line `scrollTop` jump read
-  as a page-flip; default-on toggle and RSVP-only still hold.)**
+- **D45 · "Show context" toggle, default ON, RSVP-only by construction.**
+  *User fork.* Toggle lives in RSVP settings. (Original scroll model — a
+  ~2–3 line clamp with a per-line `scrollTop` jump — superseded by D47's
+  continuous pinned-line scroll; it read as a page-flip. Full original
+  text in DECISIONS-archive-v1.md.)
 - **D46 · Shared pure `blockIndexForWord` in `model/`.** Extracted the
   word→block binary search as a portable helper (Reader keeps its inline copy for
   now to avoid touching the hot path; the ~10-line duplication is acknowledged).
@@ -187,11 +183,12 @@
   edge (verified: ~7 re-renders across 180 words at 5 lines), and the recenter on
   a shift is instant/imperceptible. Text stays sharp — the edge fade is an alpha
   mask, not a blur. *(The `translateY` is now snapped to the line grid — D52.)*
-- **D48 · "Context lines" is a live 3/5/7 setting (default 5).** *User fork.* Odd
-  values guarantee a centered line with equal context above/below. Stored as
-  `contextLines` in `RsvpSettings` (spread on update); the box height and
-  buffered window adapt live. Shown only when "Show context" is on.
-  **(Range/default superseded by D50 — now 3/5, default 3.)**
+- **D48 · (Merged into D50.)** Superseded 3/5/7 setting, default 5; its
+  still-true content (the odd-values guarantee and the `contextLines`
+  storage shape) is folded into D50 verbatim. Full original text in
+  DECISIONS-archive-v1.md. (Consolidation here is de-duplication, not
+  compression — the expanded D50 plus this stub run slightly longer than
+  the two original entries; expected.)
 
 ### Bug-fix pass (2026-07-02) — vertical crowding + line rendering
 
@@ -208,7 +205,11 @@
   reads as peripheral. Walked through both line counts × min/max font: no overlap.
 - **D50 · Context lines reduced to 3/5, default 3 (supersedes D48's 3/5/7,
   default 5).** *User fork.* 7 was the main case that collided (too tall) and is
-  dropped; the user finds 3 cleanest, so it's the default.
+  dropped; the user finds 3 cleanest, so it's the default. Odd values
+  guarantee a centered line with equal context above/below. Stored as
+  `contextLines` in `RsvpSettings` (spread on update); the box height and
+  buffered window adapt live. Shown only when "Show context" is on.
+  (Absorbs D48, now a stub.)
 - **D51 · Context font tracks the anchor.** *User direction.* The strip's
   `font-size` is `max(0.6rem, 0.32em)` — proportional to the word (the slider
   sizes the whole stage), floored so it stays legible at the smallest anchor. A
@@ -283,22 +284,30 @@
   cursor + hover tint. **A11y note:** the strip stays `aria-hidden` (it's a
   peripheral visual echo of the reader), so this is a mouse convenience — the
   accessible seek paths remain the main reader's click and the keyboard transport.
-- **D58 · Hide the bionic controls in RSVP (don't disable, don't reset).** *User
+- **D58 · Hide the bionic controls AND the global Text size slider in RSVP
+  (don't disable, don't reset). (Absorbs D59, now a stub.)** *User
   direction.* RSVP flashes one ORP-anchored word; bionic bolding doesn't apply,
   so the toggle + intensity chips are a `showBionic` gate in `Settings`
   (`mode !== 'rsvp'`). They're **not rendered** in RSVP but their state is
   untouched, so they return exactly as left when switching back to flowing/chunk.
   (Line width stays visible in RSVP — it drives the word grid's max-width and the
-  strip width; only Text size is RSVP-irrelevant, handled by D59.)
-- **D59 · Hide the global Text size slider in RSVP.** *User fork (chose "hide"
-  over unifying / disabling).* In RSVP the global `--reader-font-size` does
+  strip width; only Text size is RSVP-irrelevant, covered just below.)
+
+  **Text size (merged in from D59).** *User fork (chose "hide" over
+  unifying / disabling).* In RSVP the global `--reader-font-size` does
   nothing (RSVP sizes its stage from its own Font size control), so the slider is
-  a `showTextSize` gate in `Settings` (`mode !== 'rsvp'`) — same pattern as D58.
+  a `showTextSize` gate in `Settings` (`mode !== 'rsvp'`) — same `showX`-gate
+  pattern as the bionic controls above.
   **Why hide, not unify:** body size and RSVP-word size have different ranges and
   purposes and are worth keeping independent (a comfortable body size *and* a big
   RSVP word); unifying would merge `ReaderDisplay.fontSize` with
   `RsvpSettings.fontSize` and lose that. **Line width stays** in RSVP (it sizes
   the word grid + strip). State is untouched; the slider returns on mode switch.
+- **D59 · (Merged into D58.)** Original entry (hide the global Text size
+  slider in RSVP) folded into D58 verbatim — identical `showX`-gate pattern.
+  Full original text in DECISIONS-archive-v1.md. (Consolidation here is
+  de-duplication, not compression — the expanded D58 plus this stub run
+  slightly longer than the two original entries; expected.)
 
 ## Documentation discipline (2026-06-26, established before M6)
 
@@ -617,39 +626,11 @@
   D40).** **Superseded by D89** — browser testing found this yield-set both
   too broad (yielded for *every* BUTTON/SELECT, not just Play/Pause — issue
   #38 bug #3) and, via its `if (tag !== 'INPUT') return false` default, too
-  eager to yield for elements that were never form controls at all (a clicked
-  word `<span>`, or `<body>` after a click drops focus there — bug #2). D89
-  has the corrected design. Left intact below per append-only discipline;
-  read D89 for what actually shipped. *Real bug, user repro (original report).*
-  D40's keydown handler bailed out of Space
-  (and arrows/Home) for **any** focused `INPUT`/`SELECT`/`TEXTAREA`/`BUTTON`.
-  That's correct for arrows (don't hijack a slider/select) and correct for
-  Space-on-a-BUTTON (native click already toggles the pacer; re-handling would
-  double-fire), but it also meant Space was swallowed by a focused **WPM
-  number**, **Word number**, or **scrubber range** field — the user adjusts
-  WPM mid-read, presses Space to pause, and nothing happens because focus is
-  still in the number input. Fix: a pure predicate,
-  `spaceTogglesFrom(el)` (`src/pacer/keyboard.ts`), returns `true` (pacer
-  should toggle) for `INPUT[type=number]` and `INPUT[type=range]` — Space is
-  inert text in both, so claiming it costs nothing — and `false` (yield to
-  native behavior) for `BUTTON`, `SELECT`, `TEXTAREA`, and text-type `INPUT`s
-  (notably the PresetsPanel save/rename name field, where a literal space must
-  still be typeable). The App.tsx keydown handler checks this predicate
-  **before** the existing blanket tag-based guard, which remains unchanged and
-  still governs arrows/Home. **The BUTTON path is untouched** — the predicate
-  returns `false` for it exactly as the old blanket guard did — so the D40
-  double-fire guard (native click + a second toggle from the handler) cannot
-  reappear. Verified headlessly against the real bundled predicate (esbuild →
-  Node): number/range → `true`; button/select/textarea/text-input/checkbox/
-  radio → `false`; `null` target → `true`. See FINDINGS.md F22.
-  Alternatives considered and rejected: blurring the WPM field on commit (the
-  field commits live on every keystroke via `onChange`, so there's no natural
-  "commit" moment to hang a blur off, and it wouldn't cover the Word field or
-  scrubber); relying on Part A's HUD collapse alone to remove the trap fields
-  (D87) — that only helps while *playing*; the equally-real paused→play flow
-  (focus the WPM field while paused, press Space to start) is untouched by
-  hiding fields only during playback, so a fix that only works one direction
-  isn't a fix.
+  eager to yield for elements that were never form controls at all (a
+  clicked word `<span>`, or `<body>` after a click drops focus there — bug
+  #2). D89 has the corrected design that actually shipped. Full original
+  text (the `spaceTogglesFrom` predicate as first designed, and its
+  rejected alternatives) preserved verbatim in DECISIONS-archive-v1.md.
 
 - **D87 · HUD collapse changes `.app-top`'s height only, never `.reader-pane`'s
   width; implemented as a CSS `max-height`/opacity transition on existing row
@@ -683,39 +664,31 @@
   produces an instant `.app-top` height snap (the exact "reader jump" #38
   forbids, most visible as an RSVP word jump rather than a glide).
 
-- **D88 · `PacerControls` stays mounted across the HUD switch; `compact` is a
-  prop, not a remount; the progress-bar/% elements are hoisted to a shared
-  JSX position; WPM keeps a live compact slider (number field dropped); the
-  scrubber and Word field are dropped entirely during playback (not just
-  visually hidden).** **WPM control choice reversed by D89** (issue #38 item
-  5) — compact mode now shows the number box, not the slider; the
-  stays-mounted/hoisted-`pctRef`/scrubber-and-Word-field-dropped decisions
-  below are unchanged. *User direction, resolving the plan's open questions.*
-  `PacerControls` already owns an imperative `pacer.subscribe` writing into
-  `fillRef`/`pctRef` — swapping to a *separate* HUD component would tear that
-  subscription down and re-init it across every play/pause, causing a visible
-  progress-bar flash/reset at exactly the transition boundary. Instead
-  `compact={pacer.playing}` is passed straight into the existing component,
-  which conditionally renders only the surrounding fields. The `pctRef` span
-  previously lived inside the (now-conditional) Word-field `<label>`; it's
-  hoisted to an unconditional position immediately after the transport buttons
-  so it renders at the same JSX slot regardless of `compact`, and the
-  subscription's `if (pctRef.current)` write is never aimed at a torn-down
-  node. **WPM:** the range slider is common to both layouts (same JSX
-  position, `pacer-wpm-compact` class only changes its width) so WPM stays
-  live-adjustable while playing; the number field is dropped in compact mode
-  since (a) it's one of the #38 trap fields and (b) removing the number entry
-  while keeping the slider satisfies "get out of the way" without losing live
-  control. Rejected alternative: a read-only WPM readout — considered in the
-  original plan, but the user chose to keep it live-adjustable; a range input
-  is Space-safe per D86, so it introduces no new trap. **Scrubber + Word
-  field:** dropped entirely while playing (not CSS-hidden-but-present) — the
-  HUD shows only the read-only progress bar/%; seeking during playback stays
-  available via arrow-key transport and click-to-seek on a reader word
-  (unaffected, delegated handlers). Rejected alternative: keep the scrubber
-  visible but disabled — out of scope per the user's explicit "dropped"
-  instruction, and a disabled range control still occupies HUD space the
-  minimalism goal is trying to reclaim.
+- **D88 · `PacerControls` stays mounted across the HUD switch; `compact` is
+  a prop, not a remount; the progress-bar/% elements are hoisted to a
+  shared JSX position; the scrubber and Word field are dropped entirely
+  during playback (not just visually hidden).** *User direction, resolving
+  the plan's open questions.* `PacerControls` already owns an imperative
+  `pacer.subscribe` writing into `fillRef`/`pctRef` — swapping to a
+  *separate* HUD component would tear that subscription down and re-init
+  it across every play/pause, causing a visible progress-bar flash/reset
+  at exactly the transition boundary. Instead `compact={pacer.playing}` is
+  passed straight into the existing component, which conditionally renders
+  only the surrounding fields. The `pctRef` span previously lived inside
+  the (now-conditional) Word-field `<label>`; it's hoisted to an
+  unconditional position immediately after the transport buttons so it
+  renders at the same JSX slot regardless of `compact`, and the
+  subscription's `if (pctRef.current)` write is never aimed at a
+  torn-down node. **Scrubber + Word field:** dropped entirely while
+  playing (not CSS-hidden-but-present) — the HUD shows only the read-only
+  progress bar/%; seeking during playback stays available via arrow-key
+  transport and click-to-seek on a reader word (unaffected, delegated
+  handlers). Rejected alternative: keep the scrubber visible but disabled
+  — out of scope per the user's explicit "dropped" instruction, and a
+  disabled range control still occupies HUD space the minimalism goal is
+  trying to reclaim. **(WPM control choice — a live compact slider —
+  reversed by D89: compact mode now shows the number box, not the slider;
+  full original paragraph in DECISIONS-archive-v1.md.)**
 
 ## Bug-fix pass — issue #38 browser-testing QA round (corrects D86–D88)
 
@@ -1572,49 +1545,45 @@ why*, for anyone reading the superseded text.
 ## Bug-fix — RSVP anchors on a bare combining mark for NFD text (issue #77)
 
 - **D105 · NFC normalization chosen over `Intl.Segmenter` grapheme-cluster
-  splitting.** *Judgment call the task explicitly required be made and
-  justified either way, not left implicit.* `splitOrp` (`src/pacer/orp.ts`)
-  now calls `text.normalize('NFC')` before splitting into code points — one
-  line, no change to `orpIndex`'s length-bucket thresholds.
+  splitting.** `splitOrp` (`src/pacer/orp.ts`) now calls
+  `text.normalize('NFC')` before splitting into code points — one line,
+  no change to `orpIndex`'s length-bucket thresholds.
 
   **Why NFC is sufficient for the realistic case:** NFC composes any
-  canonically decomposable sequence into its precomposed codepoint wherever
-  the Unicode standard assigns one — which covers essentially all
-  commonly-typed accented Latin (the issue's own repro, "naïve"), Cyrillic,
-  and Greek text, and specifically the macOS-authored-NFD-file scenario the
-  issue names as the common real-world trigger. Verified directly (not just
-  asserted): `src/pacer/orp-headless-test.mjs` reconstructs NFD words spanning
-  every `orpIndex` length bucket from precomposable Latin vowel+accent pairs
-  and confirms zero bare combining marks survive in `pre`/`anchor`/`post` at
-  any length, plus a direct repro proving the *old* (pre-fix) code-point-only
-  split does leak one on the issue's own "naïve" example.
+  canonically decomposable sequence into its precomposed codepoint
+  wherever the Unicode standard assigns one — which covers essentially
+  all commonly-typed accented Latin (the issue's own repro, "naïve"),
+  Cyrillic, and Greek text, and specifically the macOS-authored-NFD-file
+  scenario the issue names as the common real-world trigger. Verified
+  directly: `src/pacer/orp-headless-test.mjs` reconstructs NFD words
+  spanning every `orpIndex` length bucket from precomposable Latin
+  vowel+accent pairs and confirms zero bare combining marks survive in
+  `pre`/`anchor`/`post` at any length, plus a direct repro proving the
+  *old* (pre-fix) code-point-only split does leak one on the issue's own
+  "naïve" example.
 
-  **Why `Intl.Segmenter` was not used, despite being the more complete fix:**
-  true grapheme-cluster splitting would also close the residual gap NFC
-  leaves open — combining sequences with **no** Unicode-assigned precomposed
-  form at all (e.g. some stacked-diacritic combinations, or marks the
-  composition-exclusion table deliberately excludes from NFC), where a bare
-  mark can still detach. But adopting it is a materially bigger change than
-  this fix's scope: it redefines what "one character" means throughout
-  `splitOrp`'s output — a grapheme cluster can be multiple code points glued
-  together for rendering purposes, which has knock-on implications for the
-  ORP anchor's fixed-x monospace-grid guarantee (D29/F3, which currently
-  reasons about the anchor as exactly one glyph) and for `orpIndex`'s length
-  semantics (currently a code-point count, would need to become a
-  grapheme-cluster count for the bucketing to stay meaningful on
-  cluster-heavy text). Given the task's own sizing guidance — reach for the
-  bigger fix "only if you think NFC normalization leaves a real,
-  likely-to-matter gap" — and that the residual gap is a narrow edge case
-  (Unicode sequences with no precomposed form at all) relative to the common
-  NFD-from-macOS case the issue describes, NFC alone was judged the
-  right-sized fix. The residual gap is recorded, not silently implied fixed:
-  flagged in `orp.ts`'s own updated doc comment, in FINDINGS.md F37, and
-  here.
+  **Why `Intl.Segmenter` was not used, despite being the more complete
+  fix:** true grapheme-cluster splitting would also close the residual
+  gap NFC leaves open — combining sequences with **no** Unicode-assigned
+  precomposed form at all (e.g. some stacked-diacritic combinations, or
+  marks the composition-exclusion table deliberately excludes from NFC),
+  where a bare mark can still detach. But adopting it redefines what "one
+  character" means throughout `splitOrp`'s output — a grapheme cluster can
+  be multiple code points glued together for rendering purposes, which has
+  knock-on implications for the ORP anchor's fixed-x monospace-grid
+  guarantee (D29/F3, which currently reasons about the anchor as exactly
+  one glyph) and for `orpIndex`'s length semantics (currently a code-point
+  count, would need to become a grapheme-cluster count for the bucketing
+  to stay meaningful on cluster-heavy text). The residual gap is a narrow
+  edge case (Unicode sequences with no precomposed form at all) relative
+  to the common NFD-from-macOS case the issue describes, so NFC alone was
+  judged the right-sized fix. The residual gap is recorded, not silently
+  implied fixed: flagged in `orp.ts`'s own updated doc comment, in
+  FINDINGS.md F37, and here.
 
   Alternative rejected: `Intl.Segmenter`-based grapheme splitting — more
   complete, but disproportionate to this issue's scope and introduces the
-  anchor/length-semantics questions above, which weren't asked for and
-  weren't answered by this task's direction. If the residual gap is later
+  anchor/length-semantics questions above. If the residual gap is later
   found to matter in practice, that's a separate, larger fix with its own
   design questions, not a hidden extension of this one.
 
@@ -1988,3 +1957,72 @@ entries above so it doesn't interrupt the decision flow.
   a single PR spanning annotation, relocation, *and* content-rewrite verdicts
   would be unreviewable, and review is the only safeguard for a log with no
   test that catches a dropped finding.
+
+- **D117 · Phase 2 of #80's execution: SHARPEN/CONSOLIDATE applied, guarded
+  by a mechanical preservation gate that downgraded two proposals to
+  KEEP-ACTIVE; append-only resumes on this PR's merge because #80's
+  execution is now complete.** *Process decision, closing the Phase 2 PR
+  D116 anticipated.* This is the content-rewrite pass D116 held back from
+  Phase 1. Every SHARPEN was put through a preservation gate before being
+  applied (see the durable lesson below); the consolidations absorbed their
+  subsumed entry's content verbatim and left a stub.
+
+  **Applied:** the two SHARPENs already sound (D105 — NFC-vs-`Intl.Segmenter`
+  reasoning kept, task narration cut; D2 — the issue #6 / D67–D76 fingerprint
+  resolution kept, the superseded M5 deferral prose sent to the archive);
+  D45 (kept "Show context" default-on + RSVP-only; the superseded
+  clamp/`scrollTop`/page-flip scroll model → archive, with `scrollTop`/`~2–3
+  lines`/D47 all retained); D86 (reduced to its supersession paragraph per
+  the issue #80 comment — the superseded `spaceTogglesFrom` predicate design
+  and its rejected alternatives now live in the archive; its
+  `INPUT[type=number]`/`INPUT[type=range]` yield mapping and yield-by-default
+  behavior remain covered in ARCHITECTURE.md, so no dangling reference
+  results); D88 (kept the stays-mounted / hoisted-`pctRef` /
+  scrubber-and-Word-field-dropped decisions; the reversed compact-WPM-slider
+  paragraph → archive, `pacer-wpm-compact` still carried by the untouched
+  D89); F22 (kept the methodology vindication and the "Still ❓" tail; the
+  four-bug "Confirmed broken" list → cut, because F23 carries each bug's
+  diagnosis verbatim). Plus the two consolidations **D48→D50** and
+  **D59→D58**, each absorbing the subsumed entry verbatim and leaving a
+  stub (both grew total line count slightly — de-duplication, not
+  compression, as flagged in the stubs).
+
+  **Downgraded to KEEP-ACTIVE after failing the preservation gate, left
+  byte-untouched:**
+  - **D89** — the drafted SHARPEN cut the bug-diagnosis chronology on the
+    stated grounds that F23 carries it "near-verbatim." Grepping F23 proved
+    it does **not** carry `pad = Math.max(3, contextLines)`,
+    `disabled={pacer.atEnd && !pacer.playing}`,
+    `firstWordlikeFrom(words, next + 1) === -1`, or `onSeekClick` — those
+    identifiers exist only in D89. Cutting them would have lost them from
+    the live docs entirely, so D89 stays whole.
+  - **D104** — the drafted SHARPEN deleted the paragraph recording the #76
+    fix itself (`wordCount?: number` on `PositionSnapshot`, populated in
+    `saveReadingPosition`, `handleResume` drift-checking against
+    `snapshot.wordCount ?? resumeRecord?.wordCount` in `App.tsx`). D104 is
+    the only entry under the #76 heading, so no other entry carries that
+    record — cutting it would erase the fix from the log. D104 stays whole.
+  - **D43** — not a gate failure; skipped as churn (the drafted rewrite was
+    the same line count as the original, so it changed nothing worth
+    changing).
+
+  **The durable lesson (the reason the gate exists):** a SHARPEN is only
+  safe when every backticked identifier, numeric value, formula, and
+  cross-reference in the original is either kept in the rewrite or **provably**
+  present elsewhere in a *live* doc — and "provably" means grepped, not
+  argued. The live-doc scope for that check is all four maintained docs
+  (DECISIONS.md, FINDINGS.md, ARCHITECTURE.md, PROJECT_CONTEXT.md), not just
+  the two logs — D86's gate initially read as a conflict only because the
+  first grep pass omitted ARCHITECTURE.md, which turned out to carry the two
+  selector items. Two of this pass's nine proposed SHARPENs (D89, D104)
+  could not pass and were kept whole. **A SHARPEN that cannot pass the gate
+  is a correct KEEP-ACTIVE, not a failed edit** — the gate's whole job is to
+  convert "this reads verbose" into "this is safe to cut" only when the
+  evidence supports it.
+
+  **Append-only resumes now.** With this PR, #80's execution (Phase 1 +
+  Phase 2) is complete, so the D116 suspension lifts on merge. Subsequent
+  edits to DECISIONS.md/FINDINGS.md are append-only again — corrections
+  appended and marked, never rewritten in place — with the frozen
+  `-archive-v1.md` snapshot (D115) remaining the immutable ground truth for
+  anything trimmed or reduced across both phases.

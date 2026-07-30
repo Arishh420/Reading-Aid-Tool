@@ -538,23 +538,9 @@ case for the Play button) are described in F23.
 **`npm run build` (`tsc -b` + `vite build`) was 🧪 clean** on the first pass
 and remains 🧪 clean after the fixes — expected, since none of the four bugs
 were type errors (a disabled-by-`atEnd` button, a CSS clipping bug, and an
-overly-broad runtime predicate all typecheck fine).
-
-**Confirmed broken by browser testing (see F23 for full diagnosis):**
-- Bug #1: HUD collapse CSS clipped `.reader-toolbar-controls` (hiding
-  ThemeSelector) even at rest, not just while collapsing — the "HUD collapse
-  smoothness" item below undersold this; the real failure was permanent
-  clipping, not just an animation quality question.
-- Bug #2: Space after a click-to-seek did not toggle the pacer and the page
-  scrolled instead — the "reported repro" and the general Space-routing
-  design both had this exact gap and it was real.
-- Bug #3: Space toggled the Presets panel / Mode dropdown instead of the
-  pacer while either was focused — the "everything works except the tested
-  cases" gap manifested exactly as this file predicted it might.
-- Bug #4: the RSVP Play/Pause button (click **and** Space) stopped responding
-  after a context-strip seek near the document's end — not a new #38
-  regression; a pre-existing `atEnd`-disables-Play interaction with no visual
-  disabled state, surfaced by this round of testing.
+overly-broad runtime predicate all typecheck fine). Browser testing that same
+round confirmed four bugs actually broken (not just untested) — see F23 for
+the full diagnosis and fix of each.
 
 **Still ❓ — not yet observed, unaffected by this round's fixes:**
 - Paused→play from a focused WPM field via Space (still expected to work per
