@@ -19,8 +19,6 @@ export interface ChunkSettings {
   chunkSize: number;
 }
 
-export const DEFAULT_CHUNK: ChunkSettings = { chunkSize: 3 };
-
 interface ChunkHighlightProps {
   document: Document;
   words: Word[];

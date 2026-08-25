@@ -1,11 +1,16 @@
 import type { BionicSettings, ReaderDisplay } from '../ui/Settings';
-import { DEFAULT_DISPLAY } from '../ui/Settings';
 import type { Theme } from '../ui/theme';
 import type { PacerMode } from '../pacer/ModeSettings';
-import { DEFAULT_FLOWING, type FlowingSettings } from '../pacer/modes/FlowingHighlight';
-import { DEFAULT_RSVP, type RsvpSettings } from '../pacer/modes/Rsvp';
-import { DEFAULT_CHUNK, type ChunkSettings } from '../pacer/modes/ChunkHighlight';
+import type { FlowingSettings } from '../pacer/modes/FlowingHighlight';
+import type { RsvpSettings } from '../pacer/modes/Rsvp';
+import type { ChunkSettings } from '../pacer/modes/ChunkHighlight';
 import { storageGet, storageSet } from '../storage/storage';
+import {
+  DEFAULT_DISPLAY,
+  DEFAULT_FLOWING,
+  DEFAULT_RSVP,
+  DEFAULT_CHUNK,
+} from '../settings-defaults';
 
 // ------------------------------------------------------------------
 // Types

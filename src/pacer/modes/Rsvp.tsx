@@ -32,12 +32,6 @@ export interface RsvpSettings {
   contextLines: number;
 }
 
-export const DEFAULT_RSVP: RsvpSettings = {
-  fontSize: 3,
-  showContext: true,
-  contextLines: 3,
-};
-
 interface RsvpProps {
   document: Document;
   words: Word[];

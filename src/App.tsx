@@ -4,8 +4,6 @@ import { flattenWords } from './model/tokenize';
 import { FileInput } from './ui/FileInput';
 import { ResumePrompt } from './ui/ResumePrompt';
 import {
-  DEFAULT_BIONIC,
-  DEFAULT_DISPLAY,
   Settings,
   type BionicSettings,
   type ReaderDisplay,
@@ -19,16 +17,21 @@ import { buildDwellMultipliers } from './pacer/dwell';
 import { PacerControls } from './pacer/PacerControls';
 import { ModeSettings, type PacerMode } from './pacer/ModeSettings';
 import {
-  DEFAULT_FLOWING,
   FlowingHighlight,
   type FlowingSettings,
 } from './pacer/modes/FlowingHighlight';
-import { DEFAULT_RSVP, Rsvp, type RsvpSettings } from './pacer/modes/Rsvp';
+import { Rsvp, type RsvpSettings } from './pacer/modes/Rsvp';
 import {
   ChunkHighlight,
-  DEFAULT_CHUNK,
   type ChunkSettings,
 } from './pacer/modes/ChunkHighlight';
+import {
+  DEFAULT_BIONIC,
+  DEFAULT_DISPLAY,
+  DEFAULT_FLOWING,
+  DEFAULT_RSVP,
+  DEFAULT_CHUNK,
+} from './settings-defaults';
 import {
   loadBookRecord,
   saveReadingPosition,

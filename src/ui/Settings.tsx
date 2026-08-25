@@ -10,11 +10,6 @@ export interface BionicSettings {
   intensity: BionicIntensity;
 }
 
-export const DEFAULT_BIONIC: BionicSettings = {
-  enabled: true,
-  intensity: 'medium',
-};
-
 /** Reader typography (M7): applied as CSS variables on the laid-out reader. */
 export interface ReaderDisplay {
   /** Body font size in rem. */
@@ -22,8 +17,6 @@ export interface ReaderDisplay {
   /** Reading column max width in rem (line length / measure). */
   lineLength: number;
 }
-
-export const DEFAULT_DISPLAY: ReaderDisplay = { fontSize: 1.125, lineLength: 42 };
 
 const INTENSITIES: BionicIntensity[] = ['low', 'medium', 'high'];
 

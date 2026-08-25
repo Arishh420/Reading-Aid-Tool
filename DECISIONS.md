@@ -2158,3 +2158,93 @@ entries above so it doesn't interrupt the decision flow.
   flagged as such in F41, not asserted here as fact.)
 
   Fixes #87.
+
+## Bug-fix — `presets.ts` value-import taint pulls React/DOM into a doc'd-portable module (issue #101)
+
+- **D119 · Extract the four `DEFAULT_*` value constants (plus `DEFAULT_BIONIC`,
+  for consistency) into a new pure module `src/settings-defaults.ts`; leave
+  every settings-type interface where it already lived — option (a) from the
+  issue's own list, not (b) correct-the-doc-only or (c) defer.**
+  *Adversarial-audit finding (issue #101), not a user repro; measured
+  evidence in PORT-AUDIT.md §3.5.* ARCHITECTURE.md's Portable table and its
+  §11 both stated `presets.ts` has no DOM deps. A measured
+  `esbuild --bundle --format=esm --platform=neutral --metafile` closure
+  (method: PORT-AUDIT.md Appendix A) proved that false: `presets.ts` imports
+  the **values** `DEFAULT_DISPLAY` (from `ui/Settings.tsx`), `DEFAULT_FLOWING`
+  (from `pacer/modes/FlowingHighlight.tsx`), `DEFAULT_RSVP` (from
+  `pacer/modes/Rsvp.tsx`), and `DEFAULT_CHUNK` (from
+  `pacer/modes/ChunkHighlight.tsx`) — four React component modules, each
+  pulling its own transitive tail (`Reader.tsx`, `RsvpContextStrip.tsx`,
+  `usePacer.ts`, `BionicText.tsx`, …) into `presets.ts`'s closure. Measured
+  before any fix: **16 local files**, external packages `react` and
+  `@tanstack/react-virtual`. `presets.ts`'s own body is genuinely pure — the
+  taint is entirely these four import lines, not the file's logic.
+
+  **Why this is a real defect independent of the Android port, not merely a
+  stale doc comment.** The dependency direction is backwards on its own
+  terms, today, on the web: `presets.ts` is settings *data* (types, built-in
+  bundles, CRUD, `bundlesEqual`) and has no business depending on `Reader.tsx`
+  or a virtualization library to know what `RsvpSettings.fontSize` defaults
+  to. CLAUDE.md §2 requires a doc/code disagreement be fixed rather than left
+  standing; option (b) (correct the doc, leave the code) would have honestly
+  documented the wrong-direction dependency instead of fixing it.
+
+  **Why not (c) defer, or a variant of (b) that duplicates the values instead
+  of importing them.** Deferring costs nothing today but guarantees the doc
+  keeps drifting from the code (this file already has one precedent for
+  exactly that decay path — D103/F-PRESETS-5, where the non-RSVP built-ins
+  silently inherited `rsvp.showContext: true` because nobody had reason to
+  look at `DEFAULT_RSVP` closely). Hand-duplicating the four literals into
+  `presets.ts` instead of importing them was also rejected: it would fix the
+  closure but reintroduce the *exact* failure mode D103 already happened
+  once — two copies of the same default value that can silently diverge the
+  next time either one is edited. Importing from a single new source of
+  truth is the only option that fixes the closure without creating a second
+  copy to keep in sync.
+
+  **`DEFAULT_BIONIC` moved too, though it wasn't required to close #101.**
+  `presets.ts` never imported `DEFAULT_BIONIC` (its `DEFAULT_BUNDLE.bionic`
+  field is an inline literal, `{ enabled: true, intensity: 'medium' }` —
+  untouched by this fix; it is a real duplication and gets its own issue, not
+  folded in here). `DEFAULT_BIONIC` is only ever imported by `App.tsx`. But
+  it is the same kind of constant as `DEFAULT_DISPLAY` — both sat in
+  `Settings.tsx` for no principled reason beyond "the Settings component
+  happens to also need a default" — and leaving `DEFAULT_BIONIC` behind while
+  its sibling moved out would have left the identical smell half-fixed for
+  no benefit: a single importer, a one-line change, zero closure risk either
+  way.
+
+  **The settings-type interfaces (`BionicSettings`, `ReaderDisplay`,
+  `FlowingSettings`, `RsvpSettings`, `ChunkSettings`) deliberately stayed in
+  their original component modules — not moved.** Two reasons. First, they
+  were never the problem: the issue's own measurement showed sibling
+  `import type` lines on the same import statements (`PacerMode` from
+  `ModeSettings.tsx`, `Theme` from `theme.ts`) were already absent from the
+  closure, proving esbuild erases `import type` correctly today. Second, each
+  interface is conceptually part of its owning component's props contract
+  (`RsvpSettings` is `Rsvp.tsx`'s settings shape) — severing that ownership
+  wasn't necessary to fix the value-import taint and would have been scope
+  creep. `settings-defaults.ts` reaches each type via `import type` only, so
+  it costs the new module nothing: verified as closure 1, external packages
+  NONE.
+
+  **Re-measured closure, confirming the fix rather than assuming it worked:**
+  `presets.ts` → 3 local files (`presets.ts`, `settings-defaults.ts`,
+  `storage/storage.ts` — the last being the pre-existing, already-expected
+  `localStorage` boundary, unaffected by this fix and not part of the
+  problem it solves), external packages **(NONE)**. `settings-defaults.ts` →
+  local closure **1**, external packages **(NONE)**. `presets.ts`'s §11 and
+  Portable-table entries in ARCHITECTURE.md are now factually true instead of
+  aspirational.
+
+  **Zero behaviour change.** Every moved constant's value is byte-identical
+  to its pre-move definition — this was a pure relocation, no value edited,
+  nothing renamed. All 12 headless suites (179 checks total) and
+  `npm run build` (73 modules, was 72 — the one new file) re-run clean.
+
+  Alternative rejected: moving the settings-type interfaces alongside their
+  constants into `settings-defaults.ts` — considered, since it would put
+  "everything settings-related" in one file, but rejected as unnecessary
+  churn per the reasoning above (the types were never the taint) and because
+  it would sever each type from the component whose props contract it
+  actually describes, for no closure benefit. Fixes #101.
