@@ -82,6 +82,9 @@ should be re-confirmed before the port (or anyone) relies on it:
   bare combining marks are zero-advance-width, which is the argument for
   amending it rather than a regression — is font-dependent and was reasoned,
   never measured.
+  **Resolved in part 2026-08-25 — the "nothing was seen rendered" half is
+  closed by F42 and F43 (👁 browser A/B). The D29/F3 zero-advance-width
+  claim above stays ❓ open: still reasoned, never measured.**
 - **F22/F23** ❓ — four of F22's originally-❓ items turned out to be real bugs
   (F23); the *fixes* for those bugs are themselves unwatched in a browser so
   far — still just corrected code + a passing headless predicate suite (now
@@ -2112,6 +2115,133 @@ verification and **not modified**.
 (2026-08-25, fix/orp-grapheme-cluster)
 
 
+---
+
+## Visual verification — ORP grapheme-cluster anchoring (issue #87, PR #98)
+
+### F42 — F41's "nothing visual was checked" ❓ is now closed by direct browser observation 👁; the remaining ❓ items are narrowed, not eliminated
+
+**This entry does not modify F41.** F41 (issue #87, merged as PR #98) recorded
+the grapheme-cluster ORP fix as 🧪-measured for cluster correctness, Latin
+non-regression and Hermes portability, but opened its ❓ block with *"Nothing
+visual or in-browser was checked at all. No browser was opened."* That was an
+accurate statement of what was known at the time. It is no longer accurate,
+and this entry is the record of what changed — so F41's ❓ is traceable to a
+resolution rather than reading, forever, as though the check was never done.
+
+**What was observed (👁).** Delta ran the app in a browser and performed an A/B
+comparison: the same multi-script test file, at the same reading speed, with
+the fix **stashed** and then **restored** — so the only variable between the
+two runs was the fix itself.
+
+- **Before (fix stashed):** the RSVP focal slot showed bare combining marks and
+  broken fragments on Devanagari, Thai and pointed-Hebrew text — the on-screen
+  counterpart of the 13/17 headless reproduction F41 records, now seen rather
+  than inferred from `pre`/`anchor`/`post` strings.
+- **After (fix restored):** the focal character was a complete, readable unit
+  in every observed case.
+- **Latin control:** the Latin control block was visually unchanged across both
+  runs — the observed counterpart of F41's 📐 structural argument and its 0/24
+  byte-identical measurement.
+
+**Tagged 👁, deliberately not 🧪.** This was a human looking at a screen, not a
+test producing a number. No screenshots were diffed, no glyph metrics were
+read, no pass/fail count was computed. Per this file's legend, 👁 is exactly
+that evidentiary tier, and nothing here should be cited as measurement.
+
+**Which F41 ❓ items this closes, and which it does not.** F41's first ❓ bullet
+bundled several sub-claims; only some were observed, and the distinction is
+kept rather than smoothed over:
+
+- ✅ *Closed:* whether a Devanagari/Thai/pointed-Hebrew word renders as a
+  complete unit in the focal slot, and whether Latin regressed visually.
+- ❓ *Still open, from that same bullet:* whether the **pause tick still centres
+  sensibly** under a wider anchor cluster, and whether the **red anchor
+  colouring on a 3-code-point cluster** is legible. Neither was called out as
+  observed, so neither is claimed here.
+
+**What remains UNVERIFIED (❓) — stated so this entry does not overclaim:**
+
+- **One browser, one machine.** Verified on a single browser on Delta's machine
+  only. Not checked across browsers, platforms, or operating systems.
+- **Font-dependent, and only one font stack was seen.** Complex-script
+  rendering depends on the fonts installed. A system **without** Devanagari /
+  Thai / Hebrew fonts was not tested — tofu boxes, fallback substitution, or a
+  font whose cluster shaping differs could all still look wrong, and nothing
+  here speaks to that.
+- **The D29/F3 zero-advance-width reasoning stays ❓, unchanged.** D118 amends
+  the fixed-x anchor guarantee to script-scoped and argues this is not a
+  regression because bare combining marks are typically zero-advance-width, so
+  the `auto` grid column *already* collapsed before the fix. **No glyph advance
+  width was measured in this pass either.** Seeing that the anchor now renders
+  as a complete unit says nothing about what the column width was *before* in
+  metric terms. That claim remains reasoned, not measured, exactly as F41
+  left it.
+- **A test file is not a real-world book.** The A/B used a multi-script test
+  file, so F41's separate ❓ about **real-world Indic/Thai/Hebrew documents** is
+  narrowed but **not closed** — no actual Hindi/Thai/Hebrew EPUB or Markdown
+  book has been read through the app end to end. Same standing caveat as
+  F6/F7.
+- **This verification is web-only — and that is a port-time obligation, not a
+  footnote.** `src/pacer/orp.ts` is a core/ seed module for the Android /
+  React Native port (issue #7, ARCHITECTURE.md Porting notes). **The
+  Android/RN target has NOT been visually verified and must be re-checked at
+  port time.** Nothing observed here transfers: RN uses a different text
+  engine, different font fallback, and `Rsvp.tsx`'s CSS-grid + monospace
+  fixed-x mechanism (D29/F3) is itself web-coupled and gets reimplemented
+  there. The headless Hermes evidence in F41 covers `splitOrp`'s *string
+  output* on that engine; it says nothing about how those clusters **render**
+  on a device. Whoever ports this owes a repeat of exactly this A/B on the RN
+  target.
+
+*Verified:* 👁 browser A/B observation by Delta (fix stashed vs. restored, same
+file, same speed) — see above for scope and limits. **No code, test or build
+was run or changed in this pass**; it is documentation only. F41 and DECISIONS
+D118 are untouched.
+
+(2026-08-25, docs/f41-visual-verification)
+
+
+---
+
+### F43 — The two sub-claims F42 left open are also confirmed 👁; F41's first ❓ bullet is now closed in full
+
+F42 closed most of F41's opening ❓ bullet but deliberately declined two of its
+bundled sub-claims, because they had not been reported as observed. Delta has
+since confirmed both **were** observed, in the same single browser A/B session
+F42 describes (same multi-script test file, same reading speed, fix stashed
+then restored):
+
+- **The pause tick still centres sensibly** under the wider anchor cluster.
+- **The red anchor colouring is legible** on a 3-code-point cluster.
+
+With these, F41's first ❓ bullet — *"Nothing visual or in-browser was checked
+at all"* — is closed in full: complete-unit rendering and Latin
+non-regression by F42, tick centring and anchor legibility by this entry.
+
+**Tagged 👁, not 🧪, for the same reason F42 is.** Same observer, same session,
+same tier of evidence — a human looking at a screen. No tick offset was
+measured, no contrast ratio was computed, no screenshots were diffed.
+
+**The limits F42 states carry over unchanged — a short entry does not narrow
+them:** one browser on one machine; one font stack, with no missing-font system
+tested; a multi-script **test file**, not a real-world Hindi/Thai/Hebrew book;
+and **web only**. The D29/F3 zero-advance-width reasoning remains ❓ reasoned
+rather than measured, exactly as F41 and F42 leave it — nothing here touches
+it. The **Android/React Native port-time obligation stands undiminished**:
+`src/pacer/orp.ts` is a core/ seed module, RN reimplements the web-coupled
+fixed-x mechanism entirely, and both sub-claims closed here — a tick centred
+under an anchor, and a colour's legibility — are precisely the kind of
+rendering detail that does not transfer across text engines. Whoever ports
+this still owes a repeat of the full A/B on the RN target.
+
+*Verified:* 👁 browser observation by Delta, same session as F42. **No code,
+test or build was run or changed**; documentation only. F41 and F42 are
+untouched, as is DECISIONS D118.
+
+(2026-08-25, docs/f41-visual-verification)
+
+
 ## Presets system (issue #3)
 
 ### F-PRESETS-1 — "context on" is inert in chunk mode ✅ **Unit-verified + derived**
@@ -2391,3 +2521,33 @@ file. Not exercised in a browser — same outstanding items as F-PRESETS-4.
   sibling suites re-run green. **No browser/visual verification whatsoever**,
   and the zero-advance-width reasoning behind the D29/F3 amendment is
   font-dependent and unmeasured — both ❓.
+- **F42** added (2026-08-25, issue #87 / PR #98): F41's opening ❓ — *"Nothing
+  visual or in-browser was checked at all"* — is closed by direct browser
+  observation (👁, not 🧪): Delta ran an A/B on the same multi-script test file
+  at the same speed with the fix stashed then restored. Before, the RSVP focal
+  slot showed bare combining marks and broken fragments on Devanagari, Thai and
+  pointed-Hebrew; after, the focal character was a complete readable unit in
+  every observed case, with the Latin control block visually unchanged across
+  both runs. F41 is **not** modified — F42 is an append-only companion. What
+  stays ❓: one browser on one machine, font-dependent with no missing-font
+  system tested, the D29/F3 zero-advance-width reasoning still reasoned rather
+  than measured, a test file rather than a real-world book, and — flagged as a
+  standing **port-time obligation** since `orp.ts` is a core/ seed module — the
+  Android/React Native target, which has not been visually verified and must be
+  re-checked at port time.
+- **F43** added (2026-08-25, issue #87 / PR #98): closes the two sub-claims F42
+  deliberately left open — the pause tick still centres sensibly under the
+  wider anchor cluster, and the red anchor colouring is legible on a
+  3-code-point cluster. Both were observed by Delta in the same single browser
+  A/B session F42 describes, so both are 👁, not 🧪. F41's first ❓ bullet is
+  now closed in full (complete-unit rendering and Latin non-regression by F42;
+  tick centring and anchor legibility by F43). F42's limits carry over
+  unchanged and are **not** narrowed by the shorter entry: one browser, one
+  machine, one font stack, a test file rather than a real book, and web-only —
+  with the D29/F3 zero-advance-width reasoning still ❓ and the Android/RN
+  **port-time re-verification obligation** still standing. Also, per the
+  in-place annotation precedent this Change log already records for the
+  F23/F31 tails pointing at D96, the **F41 line in the "Open / needs browser
+  verification" index was annotated in place** with a forward pointer to
+  F42/F43 — appended only, original wording byte-identical, and scoped so the
+  still-open D29/F3 claim on that same line is not swept closed with it.
