@@ -2026,3 +2026,135 @@ entries above so it doesn't interrupt the decision flow.
   appended and marked, never rewritten in place — with the frozen
   `-archive-v1.md` snapshot (D115) remaining the immutable ground truth for
   anything trimmed or reduced across both phases.
+
+## Feature/bug-fix — ORP grapheme-cluster splitting for scripts with no precomposed forms (issue #87)
+
+- **D118 · `splitOrp` splits into grapheme clusters via a hand-rolled,
+  dependency-free clusterer — NOT `Intl.Segmenter` — because Hermes lists the
+  entire Segmenter test262 suite in its `permanent_skip_list`; `orpIndex`'s
+  buckets now count clusters rather than code points; and D29/F3's fixed-x
+  anchor guarantee is formally amended from universal to script-scoped.**
+  *Adversarial-audit finding (issue #87), the residual gap D105 deliberately
+  left unscoped when fixing #77.*
+
+  D105 fixed the bare-combining-mark anchor by NFC-normalizing before
+  splitting, which resolves any *canonically decomposable* sequence. It does
+  nothing for scripts whose consonant + vowel-sign sequences have **no
+  precomposed form at all** — for those NFC is a literal no-op and the fix
+  rate is zero, not partial. D105 characterized the residual gap as a narrow
+  edge case; that is accurate for Latin and understated for Indic and
+  Southeast Asian scripts, which are not edge cases and were never scoped
+  out: the tokenizer's word predicate is `/[\p{L}\p{N}]/u`, so a Hindi or
+  Thai EPUB tokenizes and reads today. Reproduced before fixing: **13 of 17**
+  sample words across Devanagari/Thai/pointed-Hebrew/Tamil either anchored
+  directly on a bare mark (`किताब` → anchor `ि` U+093F; `שָׁלוֹם` → anchor `ׁ`
+  U+05C1) or leaked an orphaned mark to the head of `post` (`हिन्दी` → post
+  `्दी`), with `NFC-is-noop = true` on every one.
+
+  **(a) Why a hand-rolled clusterer, not `Intl.Segmenter`.** `src/pacer/orp.ts`
+  is tagged for the Android `core/` seed (ARCHITECTURE.md Porting notes), so
+  the mechanism has to be portable, not merely correct on web. It is not:
+  a GitHub code search across all of `facebook/hermes` returns exactly **one**
+  hit for "Segmenter", and that hit is `utils/testsuite/skiplist.json`, under
+  the key **`permanent_skip_list`** — `"test262/test/intl402/Segmenter/"`,
+  listed alongside `ListFormat/`, `Locale/`, `PluralRules/` and
+  `RelativeTimeFormat/`. Hermes' own `doc/IntlAPIs.md` likewise enumerates
+  `Collator`/`NumberFormat`/`DateTimeFormat`/`getCanonicalLocales` and never
+  mentions `Segmenter`. This is not a "not yet" — Hermes has declared the API
+  permanently out of scope, so a Segmenter-based `splitOrp` would simply
+  throw on Android.
+
+  What *is* available on Hermes is the `\p{M}` Unicode property escape, which
+  is all the clusterer needs. Verified empirically rather than assumed: a
+  60-check probe (12 code points × `\p{M}`/`\p{Mn}`/`\p{Mc}`/`\p{Me}`/`\p{L}`)
+  produced **byte-identical results on Hermes v0.13.0 and Node v26**, and the
+  real bundled `orp.ts` was then executed on that same Hermes binary — 23/23
+  words safe and lossless, 6/6 hard-coded Latin literals matching (FINDINGS
+  F41). `String.prototype.normalize` was confirmed present on Hermes in the
+  same pass, so D105's NFC step also crosses to the port intact.
+
+  The rule set extends a cluster on: any `\p{M}` mark; a ZWJ and whatever
+  follows it (emoji sequences); a consonant following a **conjunct linker**;
+  and the second half of a regional-indicator pair (flags). The linker set is
+  Unicode 15.1's `InCB=Linker` for UAX #29 rule GB9c — U+094D Devanagari,
+  U+09CD Bengali, U+0ACD Gujarati, U+0D4D Malayalam — plus U+17D2 Khmer
+  coeng. It deliberately **excludes** the Tamil/Telugu/Kannada/Oriya viramas,
+  because ICU does not bind those conjuncts either and matching ICU is the
+  accuracy target. That one rule is what closes the gap to parity: without it
+  the clusterer agreed with `Intl.Segmenter` on 19/23 samples (all four misses
+  Devanagari conjuncts); with it, **31/31 across 13 scripts**.
+
+  `toGraphemeClusters` is **exported** — a deliberate, small addition to the
+  module's API surface rather than a private helper. It makes the conjunct
+  rule directly assertable (test 11 pins `हिन्दी` → `['हि','न्दी']`, and test 9
+  pins that Tamil is *not* bound) instead of inferring the rule indirectly
+  from anchor placement, and it is a genuinely reusable pure primitive for the
+  port. `OrpSplit`'s shape is unchanged — `anchor` is still a `string`, now
+  documented as one grapheme cluster rather than one character — so
+  `Rsvp.tsx` needs **zero** changes (it assigns `anchor` to `textContent`).
+
+  **(b) Rejected alternatives.**
+  - ***`Intl.Segmenter` with the manual clusterer as a Hermes fallback.***
+    Better accuracy on web in principle, but it would ship **two code paths
+    producing different output for the same book** on web versus Android,
+    double the test surface, and make any field report ambiguous about which
+    path produced it. It also buys nothing measurable: the manual path already
+    reproduces ICU's grapheme output exactly on every script tested (31/31),
+    so the "better accuracy" the fallback design pays for does not exist on
+    the evidence. One deterministic path is the right trade for a core/ seed
+    module.
+  - ***The `unicode-segmenter` npm package.*** It is real, works on Hermes,
+    and is the standard answer to this problem. Rejected because `orp.ts` is
+    required to stay dependency-free for the port, the whole clusterer is
+    ~30 lines, and at 31/31 ICU parity a dependency is not earning its place.
+    Adding one would also mean the Android `core/` seed stops being copyable
+    pure TS and starts carrying a package graph — the specific property the
+    portable/web-coupled split exists to protect.
+  - ***A measured-width fallback for the anchor column*** (issue #87's third
+    option for the D29/F3 question). Rejected outright: measuring rendered
+    glyph width requires DOM measurement, which would make `splitOrp` impure
+    and web-coupled — destroying its core/ seed status, which is the reason
+    the whole fix was constrained to `\p{M}` in the first place. The right
+    response to an unenforceable guarantee is to amend the guarantee (below),
+    not to smuggle a renderer into a pure module to prop it up.
+  - ***Retuning `orpIndex`'s 1/5/9/13 thresholds for cluster counts.*** Out of
+    scope and actively harmful here: the thresholds were tuned for Latin, and
+    any change to them moves the Latin anchor, which issue #87's own
+    acceptance criteria forbid. Left untouched; flagged as still-Latin-tuned
+    in FINDINGS F41 rather than silently treated as validated for Indic.
+  - ***An ASCII fast path*** to skip clustering for the common case. Rejected
+    as complexity for an unobservable gain — measured at 0.270 µs/word versus
+    0.186 µs/word before, i.e. ~4.5 µs of CPU per second of reading at
+    1000 WPM (F41). A second code path through the hottest correctness
+    guarantee in the module is a poor trade for that.
+
+  **(c) The D29/F3 fixed-x guarantee is formally amended: script-scoped, not
+  universal.** **D29** ("Monospace RSVP word... the anchor column is a
+  constant width, so the anchor's centre is an exact fixed x for every word —
+  non-drift by construction") and **F3** ("Monospace is *required*, not
+  cosmetic, given a left-of-centre anchor"; anchor centre `= 0.4·W + 0.1·ch`)
+  both reason about the anchor as **exactly one glyph** occupying exactly one
+  monospace cell. A grapheme cluster is one *rendered* unit but may occupy
+  more than one cell — a Devanagari conjunct especially.
+
+  - **Upheld, unchanged, for Latin / ASCII / Cyrillic / Greek.** After NFC,
+    one cluster in these scripts *is* one code point and one monospace cell,
+    so the `2fr auto 3fr` middle column stays exactly one glyph wide and F3's
+    algebra is untouched. This is not a hope — it is why Latin output is
+    byte-identical (F41).
+  - **Amended to script-scoped for Indic / Thai / Hebrew-with-points.** The
+    fixed-x anchor is **not** guaranteed for these scripts, and this entry is
+    the formal record of that rather than an unstated caveat.
+
+  **Why amending is the honest call and not a regression.** This change does
+  not *introduce* drift in those scripts — it replaces a worse failure with a
+  lesser one. Before it, the anchor in those scripts was frequently a bare
+  combining mark, which is typically zero-advance-width, so the `auto` column
+  already collapsed toward zero and the anchor already drifted **and**
+  rendered a broken, orphaned glyph. After it, the anchor may drift but always
+  renders a real, readable unit. The alternative to amending is leaving those
+  scripts anchoring on bare marks, which defeats the issue. (The
+  zero-advance-width reasoning is font-dependent and was **not** measured —
+  flagged as such in F41, not asserted here as fact.)
+
+  Fixes #87.
