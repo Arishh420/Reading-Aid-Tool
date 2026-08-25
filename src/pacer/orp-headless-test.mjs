@@ -22,6 +22,16 @@
  * splitOrp/orpIndex — not a hand-copied restatement. Same pattern as
  * src/parsers/spine-integrity-headless-test.mjs.
  *
+ * ── Issue #87 (this pass) ────────────────────────────────────────────────
+ * NFC is a NO-OP for scripts whose consonant+vowel-sign sequences have no
+ * precomposed form at all — Devanagari, Thai, Hebrew-with-points, Tamil — so
+ * the #77 fix above does nothing for them and the anchor could still land on a
+ * bare matra / vowel sign / point. splitOrp now splits into GRAPHEME CLUSTERS
+ * (src/pacer/orp.ts, `toGraphemeClusters`), so the anchor is always a whole
+ * rendered unit and can never be a bare mark by construction. The clusterer is
+ * hand-rolled rather than `Intl.Segmenter`, which Hermes permanently does not
+ * implement — see DECISIONS.md D118 and FINDINGS.md F41.
+ *
  * Covers:
  *   1. NFD "naïve" and NFC "naïve" produce byte-identical pre/anchor/post.
  *   2. Demonstrates the pre-fix bug concretely: splitting NFD "naïve" by raw
@@ -33,6 +43,20 @@
  *      normalizes cleanly, and the anchor is never a bare combining mark.
  *   4. Ordinary ASCII words are unaffected (NFC-normalizing ASCII is a no-op).
  *   5. Empty string still returns { pre: '', anchor: '', post: '' }.
+ *   6. #87 acceptance: a Devanagari consonant+matra word yields no bare
+ *      combining mark at every orpIndex length bucket.
+ *   7. #87 acceptance: ASCII / precomposed Latin splits are byte-identical to
+ *      pre-clustering behaviour, asserted against HARD-CODED literals captured
+ *      from the pre-change implementation so they cannot drift with the code.
+ *   8. Thai and pointed Hebrew never anchor on or lead with a bare mark.
+ *   9. Tamil is safe, and its virama is deliberately NOT a conjunct linker.
+ *  10. Demonstrates the #87 bug concretely: NFC-only (the shipped #77 fix)
+ *      still anchors on a bare Devanagari matra where clustering does not.
+ *  11. Conjunct linkers bind the following consonant (UAX #29 GB9c).
+ *  12. Clustering is lossless across 31 words spanning 13 scripts.
+ *  13. Empty / single-cluster / NFD-Latin degenerate inputs.
+ *  14. Issue #84's delimiter decoration still composes correctly when `anchor`
+ *      is a multi-code-point cluster.
  */
 
 import assert from 'node:assert/strict';
@@ -61,7 +85,10 @@ async function bundleAndImport(entry, tmpName) {
   }
 }
 
-const { splitOrp, orpIndex } = await bundleAndImport('orp.ts', 'orp');
+const { splitOrp, orpIndex, toGraphemeClusters } = await bundleAndImport('orp.ts', 'orp');
+// Issue #84's delimiter decoration, to verify it still composes correctly
+// around a multi-code-point anchor cluster (test 14).
+const { computeDelimiterSpans } = await bundleAndImport('../model/delimiterSpans.ts', 'delimiterspans');
 
 // Combining-mark check: Unicode category M (Mn/Mc/Me) — matches any diacritic
 // that, if it appears alone (not attached to a preceding base character in
@@ -176,6 +203,213 @@ test('ordinary ASCII words unaffected', () => {
 // 5. Empty string still returns { pre: '', anchor: '', post: '' }.
 test('empty string returns empty split', () => {
   assert.deepEqual(splitOrp(''), { pre: '', anchor: '', post: '' });
+});
+
+
+// ─── issue #87: scripts with no precomposed forms ─────────────────────────────
+
+// A pre-#87 mirror: NFC-normalize (the #77 fix) but split by CODE POINT, with
+// no grapheme clustering. Kept solely to demonstrate the #87 bug concretely in
+// test 10 — the real splitOrp is what every other test exercises.
+function splitOrpNfcOnly(text) {
+  const chars = [...text.normalize('NFC')];
+  if (chars.length === 0) return { pre: '', anchor: '', post: '' };
+  const idx = Math.min(orpIndex(chars.length), chars.length - 1);
+  return {
+    pre: chars.slice(0, idx).join(''),
+    anchor: chars[idx],
+    post: chars.slice(idx + 1).join(''),
+  };
+}
+
+/** First code point of a string ('' for empty). */
+const firstCp = (s) => (s ? [...s][0] : '');
+
+/**
+ * The precise invariant #87 is about: no FRAGMENT may begin with a combining
+ * mark. A mark sitting inside a fragment attached to its own base character is
+ * correct; a mark leading a fragment is an orphan, torn from the base that
+ * ended the previous fragment.
+ */
+function assertNoOrphanMarks(word, split) {
+  for (const [name, frag] of [['pre', split.pre], ['anchor', split.anchor], ['post', split.post]]) {
+    assert.ok(!COMBINING_MARK.test(firstCp(frag)),
+      `"${word}": ${name} must not begin with a bare combining mark, got ${JSON.stringify(split)}`);
+  }
+  assert.equal(split.pre + split.anchor + split.post, word.normalize('NFC'),
+    `"${word}": reconstruction must equal the NFC form`);
+}
+
+// 6. ACCEPTANCE (issue #87): a Devanagari consonant+matra word yields no bare
+// combining mark at every orpIndex length bucket. Each consonant+matra pair is
+// exactly one grapheme cluster, so a word of N pairs has N clusters — letting
+// this sweep every bucket boundary the way test 3 does for Latin.
+test('Devanagari consonant+matra: no bare combining mark at every ORP length bucket', () => {
+  const consonants = ['क', 'ख', 'ग', 'घ', 'च']; // क ख ग घ च
+  const matras = ['ि', 'ा', 'ी', 'ु', 'े'];      // ि ा ी ु े
+  const lengths = [1, 5, 6, 9, 10, 13, 14, 20]; // same bucket boundaries as test 3
+
+  for (const len of lengths) {
+    let word = '';
+    for (let i = 0; i < len; i++) {
+      word += consonants[i % consonants.length] + matras[i % matras.length];
+    }
+    // Sanity: NFC really is a no-op here — this is precisely why the #77 fix
+    // does nothing for these scripts and #87 exists.
+    assert.equal(word.normalize('NFC'), word, `NFC must be a no-op for Devanagari (length ${len})`);
+
+    const split = splitOrp(word);
+    assertNoOrphanMarks(word, split);
+    // The anchor is a whole cluster: base consonant + its matra.
+    assert.equal([...split.anchor].length, 2, `length ${len}: anchor should be one consonant+matra cluster, got ${JSON.stringify(split.anchor)}`);
+    assert.ok(!COMBINING_MARK.test(firstCp(split.anchor)), `length ${len}: anchor must start on the base consonant`);
+    // Anchor placement follows the bucket, counted in clusters.
+    const expectedIdx = Math.min(orpIndex(len), len - 1);
+    assert.equal(split.anchor, consonants[expectedIdx % consonants.length] + matras[expectedIdx % matras.length],
+      `length ${len}: anchor should be cluster ${expectedIdx}`);
+  }
+});
+
+// 7. ACCEPTANCE (issue #87): ASCII and precomposed Latin placement is
+// byte-identical to the pre-clustering behaviour. Expected values are HARD-CODED
+// literals — captured from the pre-change implementation (git show HEAD) — so
+// this test cannot drift by being recomputed from the code it is checking.
+test('ASCII and precomposed Latin splits are byte-identical to pre-#87 behaviour', () => {
+  const EXPECTED = [
+    ["a", { pre: "", anchor: "a", post: "" }],
+    ["at", { pre: "a", anchor: "t", post: "" }],
+    ["I", { pre: "", anchor: "I", post: "" }],
+    ["cat", { pre: "c", anchor: "a", post: "t" }],
+    ["reading", { pre: "re", anchor: "a", post: "ding" }],
+    ["wonderful", { pre: "wo", anchor: "n", post: "derful" }],
+    ["extraordinary", { pre: "ext", anchor: "r", post: "aordinary" }],
+    ["internationalization", { pre: "inte", anchor: "r", post: "nationalization" }],
+    ["naïve", { pre: "n", anchor: "a", post: "ïve" }],
+    ["café", { pre: "c", anchor: "a", post: "fé" }],
+    ["Ω", { pre: "", anchor: "Ω", post: "" }],
+    ["don't", { pre: "d", anchor: "o", post: "n't" }],
+    ["well-known", { pre: "wel", anchor: "l", post: "-known" }],
+    ["1914", { pre: "1", anchor: "9", post: "14" }],
+    ["ONE", { pre: "O", anchor: "N", post: "E" }],
+    ["a-b", { pre: "a", anchor: "-", post: "b" }],
+  ];
+  for (const [word, expected] of EXPECTED) {
+    assert.deepEqual(splitOrp(word), expected, `"${word}" must split exactly as it did before clustering`);
+  }
+});
+
+// 8. Thai and pointed Hebrew — the other two scripts issue #87 names. Both were
+// reproduced anchoring on a bare mark before this fix.
+test('Thai and pointed Hebrew never anchor on or lead with a bare mark', () => {
+  const words = [
+    'ที่', 'หนังสือ', 'ภาษาไทย', 'เรียน',              // Thai
+    'בְּרֵאשִׁית', 'שָׁלוֹם', 'סֵפֶר',                      // Hebrew with niqqud
+  ];
+  for (const word of words) {
+    assert.equal(word.normalize('NFC'), word, `NFC must be a no-op for "${word}"`);
+    assertNoOrphanMarks(word, splitOrp(word));
+  }
+});
+
+// 9. Tamil — also named in the issue. Doubles as proof that the conjunct-linker
+// set deliberately EXCLUDES the Tamil virama (U+0BCD): ICU does not bind Tamil
+// conjuncts either, so neither do we.
+test('Tamil is safe, and the Tamil virama is not treated as a conjunct linker', () => {
+  for (const word of ['தமிழ்', 'புத்தகம்']) {
+    assertNoOrphanMarks(word, splitOrp(word));
+  }
+  // புத்தகம் = பு | த் | த | க | ம்  — 5 clusters. If U+0BCD were in the linker
+  // set, "த்" would swallow the following "த" and this would be 4.
+  assert.equal(toGraphemeClusters('புத்தகம்').length, 5,
+    'Tamil virama must NOT bind the following consonant (matches ICU)');
+});
+
+// 10. Concrete pre-fix bug demonstration for #87, mirroring how test 2 does it
+// for #77: NFC alone (the shipped #77 fix) still anchors on a bare matra.
+test('pre-fix bug reproduced: NFC-only split anchors on a bare Devanagari matra', () => {
+  const word = 'किताब'; // क ि त ा ब — 5 code points, orpIndex(5) = 1
+  const nfcOnly = splitOrpNfcOnly(word);
+  assert.ok(COMBINING_MARK.test(nfcOnly.anchor),
+    `expected the NFC-only split to anchor on a bare combining mark, got ${JSON.stringify(nfcOnly)}`);
+
+  // The clustered splitOrp does not have this problem for the same input.
+  const fixed = splitOrp(word);
+  assert.ok(!COMBINING_MARK.test(firstCp(fixed.anchor)), 'fixed split must not anchor on a bare combining mark');
+  assertNoOrphanMarks(word, fixed);
+});
+
+// 11. Conjunct binding (UAX #29 GB9c). Pins the linker rule so a future edit
+// cannot silently drop it — these counts match Intl.Segmenter exactly.
+test('conjunct linkers bind the following consonant, matching Intl.Segmenter', () => {
+  assert.deepEqual(toGraphemeClusters('हिन्दी'), ['हि', 'न्दी'], 'Devanagari conjunct must not split');
+  assert.equal(toGraphemeClusters('विश्वविद्यालय').length, 6, 'without the linker rule this would be 8 clusters');
+  assert.deepEqual(toGraphemeClusters('বাংলা'), ['বাং', 'লা'], 'Bengali');
+  assert.deepEqual(toGraphemeClusters('ខ្មែរ'), ['ខ្មែ', 'រ'], 'Khmer coeng');
+});
+
+// 12. Clustering never loses, duplicates or reorders a code point, for any of
+// the scripts above — join(clusters) must reproduce the NFC input exactly.
+test('clustering is lossless across every sample script', () => {
+  const words = [
+    'हिन्दी', 'किताब', 'पुस्तक', 'नमस्ते', 'विश्वविद्यालय',
+    'ที่', 'หนังสือ', 'ภาษาไทย', 'เรียน',
+    'בְּרֵאשִׁית', 'שָׁלוֹם', 'סֵפֶר', 'تمار',
+    'தமிழ்', 'புத்தகம்', 'বাংলা', 'ગુજરાતી', 'മലയാളം', 'ಕನ್ನಡ', 'తెలుగు', 'ਪੰਜਾਬੀ', 'ខ្មែរ',
+    '한국어', 'reading', 'naïve', 'naïve'.normalize('NFD'), 'café', 'Ω', 'hi👋', '👨‍👩‍👧', '🇯🇵ok',
+  ];
+  for (const word of words) {
+    const nfc = word.normalize('NFC');
+    assert.equal(toGraphemeClusters(nfc).join(''), nfc, `clustering "${word}" must be lossless`);
+    assertNoOrphanMarks(word, splitOrp(word));
+  }
+});
+
+// 13. Degenerate inputs still behave.
+test('empty, single-cluster and NFD-Latin inputs still behave', () => {
+  assert.deepEqual(splitOrp(''), { pre: '', anchor: '', post: '' });
+  assert.deepEqual(toGraphemeClusters(''), []);
+  assert.deepEqual(splitOrp('ที่'), { pre: '', anchor: 'ที่', post: '' }, 'a one-cluster word is all anchor');
+  // #77 regression, restated against the clustered implementation.
+  assert.deepEqual(splitOrp('naïve'.normalize('NFD')), splitOrp('naïve'.normalize('NFC')));
+});
+
+// 14. Interaction with the issue-#84 delimiter decoration. computeDelimiterSpans
+// is computed from the bare token text and written AROUND splitOrp's output by
+// Rsvp.tsx — never fed into it. This mirrors that composition exactly and
+// confirms it still holds when `anchor` is a multi-code-point cluster.
+test('issue #84 delimiter decoration composes correctly around multi-code-point anchors', () => {
+  const words = ['"हिन्दी', 'किताब', 'पुस्तक"', '(ที่', 'หนังสือ)', '"שָׁלוֹם"', '(תמר', 'סֵפֶר)'];
+  const doc = {
+    blocks: [{
+      id: 'b0',
+      type: 'paragraph',
+      words: words.map((text, i) => ({ id: String(i), text, isWordlike: true, spaceBefore: true })),
+    }],
+  };
+  const spans = computeDelimiterSpans(doc);
+  assert.equal(spans.length, words.length, 'one decoration per word (parallel array, D113)');
+
+  for (let i = 0; i < words.length; i++) {
+    const text = words[i];
+    const { prefix, suffix } = spans[i];
+    const { pre, anchor, post } = splitOrp(text);
+
+    // Exactly what Rsvp.tsx writes into preRef/anchorRef/postRef.
+    const rendered = (prefix + pre) + anchor + (post + suffix);
+    assert.equal(rendered, prefix + text.normalize('NFC') + suffix,
+      `"${text}": decoration must wrap the whole NFC token, not perturb it`);
+
+    // The anchor is chosen from the BARE token — decoration must never shift it.
+    assert.equal(anchor, splitOrp(text).anchor, 'anchor derives from bare text only');
+    assertNoOrphanMarks(text, { pre, anchor, post });
+    // Decoration must not introduce an orphan mark at a fragment edge either.
+    assert.ok(!COMBINING_MARK.test(firstCp(prefix + pre)), `"${text}": decorated pre must not begin with a bare mark`);
+  }
+
+  // The span really is open across the middle words (otherwise this test would
+  // pass vacuously with empty decoration everywhere).
+  assert.equal(spans[1].prefix, '"', 'middle word of a quoted run carries the opening quote');
+  assert.equal(spans[1].suffix, '"', 'and its mirror');
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

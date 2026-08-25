@@ -72,6 +72,16 @@ should be re-confirmed before the port (or anyone) relies on it:
   the old code relied on unspecified `Array.sort` behavior and the new code
   doesn't. Real-world PDF-through-browser-UI verification (same as F6/F32)
   is also still open.
+- **F41** ❓ — the issue #87 grapheme-cluster fix is 🧪 measured for cluster
+  correctness (31/31 ICU parity), Latin non-regression (0/24) and Hermes
+  portability (real `orp.ts` run on a Hermes binary), but **nothing about it
+  was seen rendered**: whether a Devanagari/Thai/pointed-Hebrew word reads
+  well in the RSVP focal slot, and whether the wider anchor cluster and the
+  pause tick under it look right, is unobserved. Its companion claim — that
+  D29/F3's fixed-x guarantee was *already* drifting in those scripts because
+  bare combining marks are zero-advance-width, which is the argument for
+  amending it rather than a regression — is font-dependent and was reasoned,
+  never measured.
 - **F22/F23** ❓ — four of F22's originally-❓ items turned out to be real bugs
   (F23); the *fixes* for those bugs are themselves unwatched in a browser so
   far — still just corrected code + a passing headless predicate suite (now
@@ -1954,6 +1964,154 @@ file already flags for other refactors touching render-adjacent code
 
 ---
 
+---
+
+## Bug-fix — ORP anchors on a bare combining mark for scripts with no precomposed forms (issue #87)
+
+### F41 — Grapheme-cluster splitting: ICU parity and Hermes portability measured 🧪; Latin safety is structural 📐; nothing visual was checked ❓
+
+Issue #87 (adversarial-audit finding, not a user repro): the #77/D105 fix
+NFC-normalizes before splitting, which resolves any canonically decomposable
+sequence. For scripts whose consonant + vowel-sign sequences have **no
+precomposed form at all**, NFC is a literal no-op — the fix rate is zero, not
+partial — and `splitOrp` could still pin the RSVP focal anchor on a bare
+combining mark. `splitOrp` now splits into grapheme clusters via a hand-rolled
+`toGraphemeClusters` (`src/pacer/orp.ts`); `orpIndex`'s buckets count clusters
+instead of code points. See DECISIONS.md D118 for the design, the rejected
+alternatives, and the D29/F3 amendment.
+
+**The gap was reproduced before anything was written (🧪).** Running the real
+bundled pre-fix `orp.ts` over 17 words across 6 scripts: **13 of 17 broken**,
+with `NFC-is-noop = true` on every Indic/Thai/Hebrew sample — i.e. the shipped
+#77 fix demonstrably does nothing for them. Anchor landed directly on a bare
+mark for `किताब` (anchor `ि` U+093F), `विश्वविद्यालय` (anchor `्` U+094D, a bare
+virama), `ที่` (anchor `ี` U+0E35), `שָׁלוֹם` (anchor `ׁ` U+05C1) and `סֵפֶר`
+(anchor `ֵ` U+05B5); eight more leaked an orphaned mark to the head of `post`
+(`हिन्दी` → post `्दी`). Controls (`reading`, NFC `naïve`, NFD `naïve`) were
+correct, confirming #77's fix was intact and the failures were specific to
+non-composable scripts.
+
+**Measured results for the shipped implementation (🧪):**
+
+| Check | Result |
+|---|---|
+| Cluster output vs. `Intl.Segmenter` (ICU), 31 words / 13 scripts | **31/31 exact match** |
+| Orphaned mark at the head of `pre`/`anchor`/`post`, same 31 words | **0/31** |
+| Latin/ASCII/NFD output vs. the pre-#87 implementation | **0 mismatches / 24 words** |
+| Real bundled `orp.ts` executed on **Hermes v0.13.0** | **23/23 safe + lossless; 6/6 Latin literals matched** |
+| `\p{M}`/`Mn`/`Mc`/`Me`/`L` probe, Hermes vs. Node (12 code points × 5) | **60/60 byte-identical** |
+| Cost per split, Latin corpus, 300 000 iterations | 0.186 µs → **0.270 µs (1.45×)** |
+
+**`Intl.Segmenter` is permanently unavailable on Hermes — established from
+primary sources, not recollection (🧪).** A GitHub code search across all of
+`facebook/hermes` returns exactly **one** hit for "Segmenter":
+`utils/testsuite/skiplist.json`, under the key **`permanent_skip_list`** —
+`"test262/test/intl402/Segmenter/"`, sitting alongside `ListFormat/`,
+`Locale/`, `PluralRules/` and `RelativeTimeFormat/`. Hermes'
+`doc/IntlAPIs.md` independently enumerates only `Collator`, `NumberFormat`,
+`DateTimeFormat` and `getCanonicalLocales`, never mentioning `Segmenter`.
+Executing the Hermes v0.13.0 CLI directly gave `typeof Intl === 'undefined'`
+— but note that the desktop CLI has no platform Intl backend at all (Intl on
+Android is ICU-backed via JNI), so **the CLI probe does not settle Android
+behaviour; the `permanent_skip_list` does**. Recorded that way deliberately
+rather than overclaiming the stronger-sounding runtime result.
+
+The same Hermes run *did* settle two things it can speak to: `\p{M}` works
+correctly (60/60 parity with Node above), and `String.prototype.normalize`
+exists and composes NFC — so **D105's NFC step also crosses to the Android
+port intact**, which had not previously been checked.
+
+**Reaching ICU parity took exactly one rule (🧪).** Without the conjunct-linker
+rule the clusterer matched `Intl.Segmenter` on 19/23 samples, and all four
+misses were Devanagari conjuncts. Adding Unicode 15.1's `InCB=Linker` set
+(UAX #29 GB9c — U+094D/U+09CD/U+0ACD/U+0D4D) plus U+17D2 Khmer coeng took it
+to 31/31. The set deliberately **excludes** the Tamil/Telugu/Kannada/Oriya
+viramas: ICU does not bind those conjuncts either, and matching ICU is the
+target. Pinned by test 9 (`புத்தகம்` must be 5 clusters, not 4).
+
+**Latin safety is structural, not coincidental (📐).** After NFC, one grapheme
+cluster in ASCII/precomposed Latin **is** one code point, so `clusters.length
+=== chars.length` and every index into it is identical — the anchor cannot
+move. The 0/24 measurement above confirms it empirically, but the guarantee is
+by construction, which is why test 7 asserts against **hard-coded literals
+captured from the pre-change implementation** (`git show HEAD:src/pacer/orp.ts`)
+rather than values recomputed from the code under test — the literals cannot
+drift with the implementation.
+
+**Performance is a non-issue, measured rather than hand-waved (🧪).** 1.45×
+relative sounds meaningful; the absolute is 0.084 µs added per word.
+`splitOrp` runs once per RSVP flash, not per frame — at 1000 WPM (above the
+app's `WPM_MAX`) that is **~4.5 µs of CPU per second of reading**. An ASCII
+fast path was considered and rejected: a second code path through the module's
+central correctness guarantee, for an unobservable gain (D118).
+
+**Issue #84's delimiter decoration was verified against multi-code-point
+anchors, not assumed safe (🧪).** `computeDelimiterSpans` reads only
+`word.text` and never reaches `splitOrp`, so the interaction *should* be
+structurally inert — but "should be" was not accepted. Test 14 builds a real
+`Document` of quoted/parenthesised Devanagari, Thai and pointed-Hebrew tokens,
+runs the real bundled `computeDelimiterSpans`, and reproduces `Rsvp.tsx`'s
+exact composition (`prefix + pre`, `anchor`, `post + suffix`). Across 11
+tokens — **7 of which produce a genuinely multi-code-point anchor**, up to 3
+code points (`स्त`, `ที่`) — all 11 composed correctly: the decoration wraps the
+whole NFC token, the anchor still derives from the bare text, and no fragment
+edge gains an orphaned mark. **No breakage; nothing was changed in
+`delimiterSpans.ts` or `Rsvp.tsx`.**
+
+**Knowingly NOT covered — stated, not implied fixed:**
+- **Thai leading vowels.** `เ` (U+0E40) is a spacing letter (`Lo`), not a mark,
+  so `เรียน` clusters as `เ`/`รี`/`ย`/`น` — the leading vowel is its own unit
+  even though it orthographically belongs to the following syllable.
+  **`Intl.Segmenter` does exactly the same** (checked, including with the `th`
+  locale), so this is a UAX #29 grapheme-cluster limitation the manual
+  approach *shares* rather than a shortcoming of it. It is not a broken glyph
+  — `เ` renders fine standalone. Fixing it needs syllable-level segmentation,
+  well beyond this issue.
+- **`orpIndex`'s 1/5/9/13 bucket thresholds remain Latin-tuned.** They now
+  count clusters, but the boundaries themselves were chosen for Latin word
+  lengths and have **not** been validated for Indic cluster counts (`हिन्दी` is
+  6 code points but only 2 clusters, which pulls the anchor much further
+  left). Retuning them was out of scope — any change moves the Latin anchor,
+  which #87's acceptance criteria forbid.
+- **Nested straight quotes, long-word overflow** — unchanged from F39, not
+  touched here.
+
+**Not verified (❓) — flagged, not implied fine:**
+- **Nothing visual or in-browser was checked at all.** No browser was opened.
+  Whether a Devanagari, Thai or pointed-Hebrew word actually *reads well* in
+  the RSVP focal slot — whether the wider anchor cluster looks right, whether
+  the pause tick still centres sensibly under it, whether the red anchor
+  colouring on a 3-code-point cluster is legible — is entirely unobserved.
+  This is the same evidentiary gap F22/F23/F30/F31/F35/F39 already carry.
+- **The D29/F3 anchor drift claim.** D118 amends the fixed-x guarantee to
+  script-scoped and argues this is not a regression, on the reasoning that
+  combining marks are typically zero-advance-width so the `auto` grid column
+  *already* collapsed and drifted before this fix. That reasoning is
+  **font-dependent and was reasoned, never measured** — no glyph advance width
+  was inspected in any font, and headless has no layout engine. Treat it as an
+  argument for why amending is acceptable, not as a measured finding.
+- **Real-world Indic/Thai/Hebrew documents.** All 31 words are hand-constructed
+  samples. No actual Hindi/Thai/Hebrew EPUB or Markdown file has been loaded
+  through the app — same standing caveat as F6/F7 for the parsers.
+- **The Hermes version tested is not the version the port will ship.** Same
+  honest limitation F25 recorded: issue #7 has no RN version pinned, so
+  v0.13.0 is strong evidence, not a substitute for a device smoke test once
+  the RN version is chosen. The `permanent_skip_list` finding is
+  version-independent, however — it is a stated policy, not a build artifact.
+
+*Verified:* 🧪 14/14 in `src/pacer/orp-headless-test.mjs` (5 pre-existing #77
+checks unchanged and still passing, 9 new). All eight sibling suites re-run
+green: `pacer/headless-test.mjs` 13/13, `pacer/dwell-headless-test.mjs` 9/9,
+`model/headless-test.mjs` 17/17, `model/delimiterSpans-headless-test.mjs`
+18/18, `storage/headless-test.mjs` 15/15, `presets/headless-test.mjs` 12/12,
+`parsers/headless-test.mjs` 15/15, `parsers/spine-integrity-headless-test.mjs`
+26/26. 🧪 `npm run build` (`tsc -b && vite build`) clean — 72 modules
+transformed, no type errors. `Rsvp.tsx` and `delimiterSpans.ts` were read for
+verification and **not modified**.
+
+(2026-08-25, fix/orp-grapheme-cluster)
+
+
 ## Presets system (issue #3)
 
 ### F-PRESETS-1 — "context on" is inert in chunk mode ✅ **Unit-verified + derived**
@@ -2210,3 +2368,26 @@ file. Not exercised in a browser — same outstanding items as F-PRESETS-4.
   verification — headless can't observe layout. 🧪 build clean (72 modules);
   neighboring suites (tokenizer 17/17, orp 5/5, pacer 13/13) re-run green.
   Browser rendering + anchor-stays-put still ❓.
+- **F41** added (2026-08-25, issue #87): the #77/D105 NFC fix is a literal
+  no-op for scripts with no precomposed forms, so RSVP could still anchor on
+  a bare matra/vowel-sign/point — reproduced at 13/17 sample words across
+  Devanagari/Thai/pointed-Hebrew/Tamil. Fixed by splitting into grapheme
+  clusters (`toGraphemeClusters` in `src/pacer/orp.ts`), with `orpIndex`'s
+  buckets now counting clusters; the anchor is a whole cluster, so it can
+  never be a bare mark by construction. The clusterer is hand-rolled rather
+  than `Intl.Segmenter`, which Hermes lists in its **`permanent_skip_list`**
+  — evidence gathered from the Hermes repo itself, and the real bundled
+  `orp.ts` was then executed on a Hermes v0.13.0 binary (23/23 safe, 6/6
+  Latin literals matched). 31/31 cluster parity with ICU across 13 scripts,
+  0/31 orphaned marks, 0/24 Latin mismatches (asserted against hard-coded
+  pre-change literals so they cannot drift), 1.45× / +0.084 µs per split.
+  Issue #84's delimiter decoration was exercised against multi-code-point
+  anchors and found sound (11/11, 7 genuinely multi-code-point) — not
+  assumed. D29/F3's fixed-x anchor guarantee is formally **amended to
+  script-scoped** by D118: upheld for Latin/ASCII/Cyrillic/Greek, not
+  guaranteed for Indic/Thai/Hebrew-with-points. Knowingly not covered: Thai
+  leading vowels (a UAX #29 limitation `Intl.Segmenter` shares) and the
+  still-Latin-tuned bucket thresholds. 🧪 build clean (72 modules); all eight
+  sibling suites re-run green. **No browser/visual verification whatsoever**,
+  and the zero-advance-width reasoning behind the D29/F3 amendment is
+  font-dependent and unmeasured — both ❓.
