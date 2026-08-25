@@ -429,7 +429,10 @@ expands a panel with built-ins grouped by mode; user presets beneath with inline
 and delete; "Save current…" creates a new named preset from live state.
 
 **Portable:** `presets.ts` (pure types, CRUD, `bundlesEqual`) — no DOM deps; swap
-`storageGet/Set` to AsyncStorage/MMKV in RN.
+`storageGet/Set` to AsyncStorage/MMKV in RN. Its `DEFAULT_*` bundle-field
+constants come from the portable `src/settings-defaults.ts`, not from the
+`.tsx` component/mode modules that own the corresponding settings types
+(issue #101 — see Porting notes below).
 **Web-coupled:** `PresetsPanel.tsx` (React UI, DOM refs for autofocus).
 
 ---
@@ -545,6 +548,7 @@ What transfers to React Native unchanged vs. what gets reimplemented.
 | `storage/storage.ts` | `storageGet/Set/Remove` wrapper — swap to AsyncStorage / MMKV on RN |
 | `storage/readingPosition.ts` | `BookRecord`/`PositionSnapshot` schema + `saveReadingPosition` / `loadBookRecord` |
 | `presets/presets.ts` | `PresetBundle` type, built-in definitions, CRUD helpers, `bundlesEqual` |
+| `settings-defaults.ts` | `DEFAULT_BIONIC`/`DEFAULT_DISPLAY`/`DEFAULT_FLOWING`/`DEFAULT_RSVP`/`DEFAULT_CHUNK` value constants (issue #101) |
 
 ### Web-coupled (reimplement against RN primitives)
 | Module | Web dependency | RN replacement |
@@ -684,3 +688,25 @@ Markdown parser is portable.
   against the real bundled module + `orp.ts`; the splitOrp checks are a
   by-construction regression guard, not anchor-position verification
   (FINDINGS F39). No `index.css` change. Build clean (72 modules).
+- **`presets.ts` portability fix** (issue #101, 2026-08-25): §11 and the
+  Portable table both claimed `presets.ts` had no DOM deps; a measured
+  `esbuild --bundle --metafile` closure (PORT-AUDIT.md §3.5) showed that was
+  false — four unqualified value imports of `DEFAULT_DISPLAY`/`DEFAULT_FLOWING`/
+  `DEFAULT_RSVP`/`DEFAULT_CHUNK` from `ui/Settings.tsx` and the three
+  `pacer/modes/*.tsx` files pulled in a 16-file closure reaching `react` and
+  `@tanstack/react-virtual`. New pure module `src/settings-defaults.ts` now
+  holds those four constants plus `DEFAULT_BIONIC` (moved from
+  `Settings.tsx` for consistency, though not itself part of the taint);
+  `presets.ts` and `App.tsx` import the values from there instead. The
+  settings-type interfaces (`BionicSettings`, `ReaderDisplay`,
+  `FlowingSettings`, `RsvpSettings`, `ChunkSettings`) were deliberately left
+  in their original component modules — `settings-defaults.ts` reaches them
+  only via `import type`, which erases at build and cost nothing in the
+  closure, so moving them was unnecessary (D119). Re-measured closure:
+  `presets.ts` → 3 local files (`presets.ts`, `settings-defaults.ts`,
+  `storage.ts`), external pkgs NONE; `settings-defaults.ts` → closure 1,
+  external pkgs NONE. `presets.ts`'s §11/Portable-table claim is now
+  actually true rather than aspirational. All 12 headless suites (179
+  checks) and `npm run build` re-run clean (73 modules — one more than
+  before, for the new file). No behaviour change; the constants' values are
+  byte-identical to their pre-move definitions.

@@ -22,8 +22,6 @@ export interface FlowingSettings {
   lead: number;
 }
 
-export const DEFAULT_FLOWING: FlowingSettings = { lead: 1 };
-
 interface FlowingHighlightProps {
   document: Document;
   words: Word[];
