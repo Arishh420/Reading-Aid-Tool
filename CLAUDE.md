@@ -32,7 +32,8 @@ If code and a doc disagree, fix one and flag the drift — never leave them at o
 ## 3. Verify honestly
 Prefer a headless check (esbuild → Node, the repo's ad-hoc pattern) over reasoning
 alone, and show the output. Say plainly what was run vs. assumed; never call
-something verified when it was only reasoned about. `npm run build` must stay clean.
+something verified when it was only reasoned about. The repo's full verification
+command must stay clean — `check` where a repo defines one, otherwise `build`.
 When a prompt asks for a command's output, paste the output verbatim — a summary of
 what it said is not a substitute, because the point of the step is that the reader
 can check it independently. If a command produced no output, say so explicitly.
